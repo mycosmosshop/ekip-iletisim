@@ -365,7 +365,7 @@
     </form>
     <div id="baglantiKutu" hidden>
       <span id="baglantiAciklama">Bu linki gönder:</span><input id="baglantiMetin" readonly><button id="baglantiKopyala">Kopyala</button><button id="baglantiKapat" aria-label="Kapat" title="Kapat">✕</button>
-      <span id="baglantiNot" hidden>Ekip dışından birini çağırmak için görüşmeyi kanaldan değil, “Görüşme bağlantısı” ile başlat.</span>
+      <span id="baglantiNot" hidden>Birebir ve özel kanal görüşmelerine ekip dışından katılınamaz; dışarıdan biri için açık bir kanalda ya da “Görüşme bağlantısı” ile başlat.</span>
     </div>
     <div id="beklemeMesaji" hidden></div>
     <div id="bekleyenler" hidden></div>
@@ -532,6 +532,10 @@ function avatar(ad, durum) {
   if (durum) a.dataset.durum = durum;
   return a;
 }
+// Tahmin edilemez görüşme odası kodu (misafir bağlantısı ?gorusme=… bununla açılır)
+const yeniKod = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 20);
+// Görüşmenin ait olduğu kanal: açık kanal görüşmesi misafir odasında yürür ama kanalına bağlı görünür
+const cagriKanali = () => durum.cagri && (durum.cagri.kaynakKanal || durum.cagri.anaKanal || durum.cagri.kanal);
 const mmss = (sn) => (sn >= 3600 ? Math.floor(sn / 3600) + ':' : '') + String(Math.floor(sn / 60) % 60).padStart(2, '0') + ':' + String(sn % 60).padStart(2, '0');
 const el = (etiket, sinif, metin) => { const e = document.createElement(etiket); if (sinif) e.className = sinif; if (metin != null) e.textContent = metin; return e; };
 
@@ -824,7 +828,7 @@ async function toplantiPlanla() {
   const bas = new Date(`${$('planTarih').value}T${$('planSaat').value}`);
   if (isNaN(bas)) return;
   const bit = new Date(bas.getTime() + Number($('planSure').value) * 60000);
-  const kod = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 20);
+  const kod = yeniKod();
   const t = { konu: $('planKonu').value.trim(), bas: bas.toISOString(), bit: bit.toISOString(), not: $('planNot').value.trim(),
               link: `${location.origin}${location.pathname}?gorusme=${kod}` };
   $('planPanel').hidden = true; $('planPanel').reset();
@@ -1225,8 +1229,8 @@ function basligiCiz() {
   if (KONUK) { $('kanalAdi').textContent = 'Görüşme'; return; }
   $('kanalAdi').textContent = kanalBasligi(durum.aktif);
   const n = cagriSayilari().get(durum.aktif) || 0;
-  const bende = durum.cagri && durum.cagri.kanal === durum.aktif;
-  const misafirde = durum.cagri && durum.cagri.kanal.startsWith('misafir-');
+  const bende = cagriKanali() === durum.aktif;
+  const misafirde = durum.cagri && !durum.cagri.kaynakKanal && durum.cagri.kanal.startsWith('misafir-');
   $('cagriBilgi').textContent = misafirde ? 'Bağlantılı görüşmedesin' : n && !bende ? `Görüşme sürüyor · ${n} kişi` : '';
   $('cagriDugme').hidden = !!durum.cagri;
   // Görüşmedeyken aynı düğme süren görüşmenin davet bağlantısını verir
@@ -1257,24 +1261,29 @@ function cagriSayilari() {
 
 function lobiDurumuYay() {
   if (!durum.lobi) return;
-  const k = durum.cagri && (durum.cagri.anaKanal || durum.cagri.kanal); // alt odadayken ana kanal görünür
+  const k = cagriKanali(); // alt odadayken ana kanal görünür
   const cagri = k && !k.startsWith('misafir-') && !ozelMi(k) ? k : null;
-  durum.lobi.track({ ad: durum.ben.ad, cagri, kanallar: [...durum.kanallar].filter((x) => !ozelMi(x)), durum: durum.durumum });
+  // Açık kanal görüşmesinin odası: kanaldan "Görüşmeye katıl" diyen aynı odaya girer
+  const oda = cagri && durum.cagri.kaynakKanal ? durum.cagri.anaKanal || durum.cagri.kanal : null;
+  durum.lobi.track({ ad: durum.ben.ad, cagri, oda, kanallar: [...durum.kanallar].filter((x) => !ozelMi(x)), durum: durum.durumum });
 }
 
 function lobiyeBaglan() {
   const ch = sb.channel('ekip-lobi', { config: { presence: { key: durum.ben.id }, broadcast: { self: false }, private: OZEL } });
-  let oncekiCagrilar = new Map();
+  let oncekiCagrilar = new Map(), ilkSenkron;
+  durum.lobiSenkron = new Promise((ok) => { ilkSenkron = ok; }); // kanal görüşmesinin odası lobiden öğrenilir
   ch.on('presence', { event: 'sync' }, () => {
+    ilkSenkron();
     durum.cevrimici.clear();
     for (const [id, girisler] of Object.entries(ch.presenceState())) {
       const g = girisler[girisler.length - 1];
-      durum.cevrimici.set(id, { ad: g.ad, cagri: girisler.map((x) => x.cagri).find(Boolean) || null, durum: g.durum || 'musait' });
+      durum.cevrimici.set(id, { ad: g.ad, cagri: girisler.map((x) => x.cagri).find(Boolean) || null,
+                               oda: girisler.map((x) => x.oda).find(Boolean) || null, durum: g.durum || 'musait' });
       (g.kanallar || []).forEach((k) => kanalEkle(k, false));
     }
     const simdi = cagriSayilari();
     for (const [k, n] of simdi) {
-      if (!oncekiCagrilar.get(k) && n && !(durum.cagri && durum.cagri.kanal === k)) {
+      if (!oncekiCagrilar.get(k) && n && cagriKanali() !== k) {
         const baslatan = [...durum.cevrimici.values()].find((x) => x.cagri === k);
         bildir(`${kanalBasligi(k)}: görüşme başladı`, (baslatan ? baslatan.ad : '') + ' görüşmede · katılmak için tıkla', k);
       }
@@ -1490,8 +1499,9 @@ function yalnizlikCiz() {
   const davet = el('button', 'ana', 'Davet bağlantısını kopyala');
   davet.onclick = davetGoster;
   kart.append(el('strong', null, 'Katılımcıların gelmesi bekleniyor…'),
-    el('span', null, c.kanal.startsWith('misafir-') ? 'Bağlantıyı gönder; gelenler bekleme salonuna düşer, sen içeri alırsın.'
-      : 'Kanaldakiler "Görüşmeye katıl" ile gelebilir; bağlantıyı da gönderebilirsin.'), davet);
+    el('span', null, (c.kaynakKanal ? 'Kanaldakiler "Görüşmeye katıl" ile gelir. ' : '') + (c.kanal.startsWith('misafir-')
+      ? 'Bağlantıyı herkese gönderebilirsin; gelenler bekleme salonuna düşer, sen içeri alırsın.'
+      : 'Bağlantıyla yalnız ERP’deki üyeler girer.')), davet);
   $('sahne').append(kart);
 }
 
@@ -1561,6 +1571,14 @@ function yonetimDugmeleri(karo, id) {
 // ayar: alt odaya geçerken önizleme atlanır; mikrofon/kamera durumu, ana kanal ve toplantı başlangıcı taşınır.
 async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
   if (durum.cagri || durum.katiliyor) return;
+  // Açık kanalın görüşmesi misafire açık bir odada yürür: "Davet et" bağlantısıyla ERP'siz katılınır, gelen misafiri
+  // sahip içeri alır. Kanaldaki görüşmenin odası lobiden öğrenilir, yoksa açılır. Birebir ve özel kanal görüşmesi kapalı kalır.
+  // ponytail: iki kişi aynı anda başlatırsa iki oda açılabilir; sık görülürse lobide en erken odaya geçiş eklenir.
+  if (!ayar.ana && !KONUK && !kanal.startsWith('misafir-') && !kanal.startsWith('dm:') && !ozelMi(kanal)) {
+    const oda = [...durum.cevrimici.values()].find((k) => k.cagri === kanal && k.oda);
+    ayar = { ...ayar, kaynak: kanal };
+    kanal = oda ? oda.oda : 'misafir-' + yeniKod();
+  }
   durum.katiliyor = true;
   const misafir = kanal.startsWith('misafir-');
   const iceSozu = iceAl(kanal); // önizleme sürerken TURN kimliği alınır
@@ -1578,7 +1596,7 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
                   erp: !durum.ben.konuk, katilanlar: new Map(), kabuller: new Set(ayar.kabul || []), cikarilanlar: new Set(ayar.cikar || []), bildirilen: new Set(),
                   altyazi: false, altyazilar: new Map(), dokum: [], tanima: null,
                   tahta: false, tahtaVuruslar: new Map(), tahtaKutu: null, tahtaTuval: null,
-                  baslangic: ayar.baslangic || Date.now(), anaKanal: ayar.ana || null, anaCh: null, altOda: ayar.altOda || null, altOdalar: ayar.altOdalar || null,
+                  baslangic: ayar.baslangic || Date.now(), anaKanal: ayar.ana || null, anaCh: null, kaynakKanal: ayar.kaynak || null, altOda: ayar.altOda || null, altOdalar: ayar.altOdalar || null,
                   kilit: false, izinler: { sohbet: true, ekran: true, tepki: true }, elSirasi: new Map(), sohbetKaydi: [],
                   anketler: new Map(), sorular: new Map(), aktarilan: new Set(), sfu: null, sfuDenendi: false, duzen: localStorage.getItem('ekip_duzen') || 'oto', ceviri: '',
                   katilim: ayar.katilim || new Map([[durum.ben.id, { ad: durum.ben.ad, erp: !durum.ben.konuk, giris: new Date().toISOString(), cikis: null }]]) };
@@ -1702,19 +1720,18 @@ async function cagridanAyril(gecis) {
 
 // ---------- görüşme bağlantısı ve dosya ----------
 async function baglantiOlustur() {
-  const kod = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 20);
-  const url = `${location.origin}${location.pathname}?gorusme=${kod}`;
-  await cagriyaKatil('misafir-' + kod);
+  await cagriyaKatil('misafir-' + yeniKod());
   if (durum.cagri) davetGoster(); // önizlemede vazgeçilmediyse
 }
 
-// Süren görüşmenin davet bağlantısını gösterir ve panoya kopyalar. Misafirli görüşmenin bağlantısını herkes açar;
-// kanal görüşmesininkini yalnız ERP kullanıcıları (kanal görüşmesi ERP'ye kapalı özel kanaldadır).
+// Süren görüşmenin davet bağlantısını gösterir ve panoya kopyalar. Misafir odasındaki görüşmenin (açık kanal
+// görüşmeleri de) bağlantısını herkes ERP girişi olmadan açar; birebir ve özel kanal görüşmesininkini yalnız ERP üyeleri.
 async function davetGoster() {
   const k = durum.cagri.anaKanal || durum.cagri.kanal, misafir = k.startsWith('misafir-');
   const url = location.origin + location.pathname + (misafir ? '?gorusme=' + k.slice(8) : '?kanal=' + encodeURIComponent(k) + '&katil=1');
   $('baglantiMetin').value = url;
-  $('baglantiAciklama').textContent = misafir ? 'Bu linke sahip olan herkes katılabilir (ERP girişi gerekmez):' : "ERP'deki ekip arkadaşların bu linkle doğrudan görüşmeye girer:";
+  $('baglantiAciklama').textContent = misafir ? 'Bu linke sahip olan herkes katılabilir, ERP girişi gerekmez. Gelenleri sen içeri alırsın:'
+    : "Bu görüşmeye yalnız ERP'deki üyeler bu linkle girer:";
   $('baglantiNot').hidden = misafir;
   $('baglantiKutu').hidden = false;
   $('baglantiKopyala').textContent = 'Kopyala';
@@ -2716,7 +2733,7 @@ async function altOdayaGec(no, p, kapandi) {
   if (!c || durum.katiliyor) return;
   const ana = c.anaKanal || c.kanal, mik = c.yerel.getAudioTracks()[0], kam = c.yerel.getVideoTracks()[0];
   // İçeri alınmışlar ve çıkarılanlar odalar arasında taşınır: dönen misafir yeniden bekleme salonuna düşmez.
-  const ayar = { onizlemesiz: true, mik: mik && mik.enabled, kam: kam && kam.enabled, baslangic: c.baslangic, altOdalar: kapandi ? null : c.altOdalar,
+  const ayar = { onizlemesiz: true, mik: mik && mik.enabled, kam: kam && kam.enabled, baslangic: c.baslangic, altOdalar: kapandi ? null : c.altOdalar, kaynak: c.kaynakKanal,
                  kabul: no ? p.kabul : [...sahipListesi('kabuller')], cikar: [...sahipListesi('cikarilanlar')], katilim: c.katilim };
   if (no) Object.assign(ayar, { ana, altOda: { no, bitis: p.bitis, sahipler: p.sahipler } });
   await cagridanAyril(true);
@@ -2756,7 +2773,7 @@ async function ozetCikar() {
   const metin = ['KATILIMCILAR: ' + [...c.katilim.values()].map((k) => k.ad).join(', '),
     '', 'KONUŞMA DÖKÜMÜ', ...c.dokum.map((d) => `[${saat(d.zaman)}] ${d.ad}: ${d.metin}`),
     '', 'GÖRÜŞME SOHBETİ', ...c.sohbetKaydi.map((m) => `[${saat(m.zaman)}] ${m.ad}: ${m.metin}`)].join('\n');
-  const k = c.anaKanal || c.kanal;
+  const k = cagriKanali();
   $('ozetDugme').disabled = true; $('uyari').textContent = '✨ AI özeti hazırlanıyor…';
   try {
     const { ozet } = await betikIstegi({ islem: 'ozet', metin, konu: k.startsWith('misafir-') ? 'Bağlantılı görüşme' : kanalBasligi(k) });
@@ -3061,7 +3078,10 @@ async function basla() {
   const p = new URLSearchParams(location.search), davetKanal = p.get('kanal');
   if (davetKanal) history.replaceState(null, '', location.pathname);
   await kanalaGec(davetKanal || 'genel');
-  if (davetKanal && p.has('katil')) cagriyaKatil(davetKanal);
+  if (davetKanal && p.has('katil')) {
+    await Promise.race([durum.lobiSenkron, new Promise((ok) => setTimeout(ok, 4000))]);
+    cagriyaKatil(davetKanal);
+  }
 }
 if (window.lucide) lucide.createIcons(); // <i data-lucide="…"> → SVG; ikonlar yüklenemezse düğmeler yazılarıyla kalır
 basla();
