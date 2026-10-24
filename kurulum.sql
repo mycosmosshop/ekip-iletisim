@@ -145,4 +145,72 @@ create policy "ekip realtime yaz" on realtime.messages for insert to authenticat
     )
   );
 
+-- 8) Özel (üyeli) kanallar -------------------------------------------------------------------
+-- Açık kanalın satırı olmayabilir (eskisi gibi adıyla vardır). Özel kanal ekip_kanal'da ozel=true ile tanımlanır;
+-- mesajlarını, görüşme kanalını ve LiveKit odasını yalnız oluşturan ve ekip_kanal_uye'deki üyeler görür.
+create table if not exists public.ekip_kanal (
+  ad        text primary key check (ad ~ '^[^:~[:space:]]{1,40}$' and ad not like 'misafir-%'),
+  ozel      boolean not null default false,
+  olusturan uuid not null default auth.uid(),
+  olusma    timestamptz not null default now()
+);
+create table if not exists public.ekip_kanal_uye (
+  kanal        text not null references public.ekip_kanal(ad) on delete cascade,
+  kullanici_id uuid not null,
+  primary key (kanal, kullanici_id)
+);
+
+-- Alt odalar ('<kanal>~odaN') ana kanalın kuralına uyar. Kurallar tablolara RLS'siz bakar (security definer).
+create or replace function public.ekip_kanala_erisir(k text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select case
+    when k like 'dm:%' then k like '%' || auth.uid()::text || '%'
+    else not exists (select 1 from ekip_kanal c where c.ad = split_part(k, '~', 1) and c.ozel)
+         or exists (select 1 from ekip_kanal c where c.ad = split_part(k, '~', 1) and c.olusturan = auth.uid())
+         or exists (select 1 from ekip_kanal_uye u where u.kanal = split_part(k, '~', 1) and u.kullanici_id = auth.uid())
+  end
+$$;
+
+alter table public.ekip_kanal enable row level security;
+alter table public.ekip_kanal_uye enable row level security;
+drop policy if exists "ekip_kanal oku" on public.ekip_kanal;
+create policy "ekip_kanal oku" on public.ekip_kanal for select to authenticated
+  using (public.ekip_onayli() and public.ekip_kanala_erisir(ad));
+-- Eski açık kanalın adıyla özel kanal açılamaz (eski mesajlar üyesizlere kapanmasın)
+drop policy if exists "ekip_kanal ekle" on public.ekip_kanal;
+create policy "ekip_kanal ekle" on public.ekip_kanal for insert to authenticated
+  with check (public.ekip_onayli() and olusturan = auth.uid() and not exists (select 1 from public.ekip_mesaj m where m.kanal = ad));
+drop policy if exists "ekip_kanal sil" on public.ekip_kanal;
+create policy "ekip_kanal sil" on public.ekip_kanal for delete to authenticated using (olusturan = auth.uid());
+drop policy if exists "ekip_kanal_uye oku" on public.ekip_kanal_uye;
+create policy "ekip_kanal_uye oku" on public.ekip_kanal_uye for select to authenticated
+  using (public.ekip_onayli() and public.ekip_kanala_erisir(kanal));
+-- Üyeyi yalnız oluşturan ekler/çıkarır; üye kendisi ayrılabilir
+drop policy if exists "ekip_kanal_uye ekle" on public.ekip_kanal_uye;
+create policy "ekip_kanal_uye ekle" on public.ekip_kanal_uye for insert to authenticated
+  with check (public.ekip_onayli() and exists (select 1 from public.ekip_kanal c where c.ad = kanal and c.olusturan = auth.uid()));
+drop policy if exists "ekip_kanal_uye sil" on public.ekip_kanal_uye;
+create policy "ekip_kanal_uye sil" on public.ekip_kanal_uye for delete to authenticated
+  using (kullanici_id = auth.uid() or exists (select 1 from public.ekip_kanal c where c.ad = kanal and c.olusturan = auth.uid()));
+
+-- Üye seçimi için onaylı kullanıcılar: ad = uygulamada son kullandığı ad, yoksa e-postanın baş kısmı.
+create or replace function public.ekip_kisiler() returns table (id uuid, ad text)
+language sql stable security definer set search_path = public as $$
+  select e.id, coalesce(
+           (select m.yazar_ad from ekip_mesaj m where m.yazar_id = e.id order by m.olusma desc limit 1),
+           (select o.ad from ekip_okundu o where o.kullanici_id = e.id order by o.son desc limit 1),
+           split_part(e.email, '@', 1)) as ad
+  from erp_users e
+  where e.approved and public.ekip_onayli()
+  order by 2
+$$;
+
+-- Üye eklenince kanal listesi anında güncellensin
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'ekip_kanal_uye') then
+    alter publication supabase_realtime add table public.ekip_kanal_uye;
+  end if;
+end $$;
+
 notify pgrst, 'reload schema';

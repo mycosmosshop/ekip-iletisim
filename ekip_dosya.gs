@@ -48,10 +48,15 @@ function doPost(e) {
   }
 }
 
-// ERP görüşmesinde oda kanalın adıdır: birebir kanalın odasına yalnız iki taraf girer.
+// ERP görüşmesinde oda kanalın adıdır: birebir ve özel kanalın odasına yalnız erişimi olan girer.
+// Karar veritabanındaki ekip_kanala_erisir kuralına kullanıcının kendi oturumuyla sorulur (kurulum.sql 8).
 function odaErisimi(g) {
-  const k = kullaniciDogrula(g.token), oda = String(g.oda || '');
-  if (oda.indexOf('dm:') === 0 && oda.indexOf(k.id) < 0) throw new Error('Bu görüşmeye erişimin yok');
+  const k = kullaniciDogrula(g.token);
+  const r = UrlFetchApp.fetch(SUPA_URL + '/rest/v1/rpc/ekip_kanala_erisir', {
+    method: 'post', contentType: 'application/json', payload: JSON.stringify({ k: String(g.oda || '') }),
+    headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + g.token }, muteHttpExceptions: true,
+  });
+  if (r.getResponseCode() !== 200 || r.getContentText().trim() !== 'true') throw new Error('Bu görüşmeye erişimin yok');
   return k;
 }
 

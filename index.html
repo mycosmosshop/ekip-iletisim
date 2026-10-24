@@ -273,6 +273,23 @@
   #onizlemeVideo { width: 100%; aspect-ratio: 16 / 9; background: var(--video); border-radius: 14px; transform: scaleX(-1); object-fit: cover; }
   #onizleme meter { width: 100%; }
   #onizleme [aria-pressed="false"] { background: var(--kirmizi); border-color: var(--kirmizi); color: #fff; }
+  #kanalPenceresi { border: 0; border-radius: 18px; background: var(--panel); color: var(--yazi); padding: 22px; width: min(440px, 94vw); box-shadow: var(--golge); }
+  #kanalPenceresi::backdrop { background: rgb(8 20 24 / .6); }
+  #kanalPenceresi form { display: grid; gap: 12px; }
+  #kanalPenceresi strong { font: 700 20px/1.2 var(--yazi-baslik); }
+  #kanalPenceresi label:not(.satir2) { display: grid; gap: 4px; color: var(--soluk); font-size: 14px; }
+  #uyeSecimi .ust-bilgi { font-size: 13px; color: var(--soluk); margin-bottom: 4px; }
+  #uyeListesi { display: grid; gap: 2px; max-height: 40vh; overflow: auto; border: 1px solid var(--kenar); border-radius: 12px; padding: 6px; }
+  #uyeListesi label { display: flex; gap: 10px; align-items: center; padding: 5px 8px; border-radius: 8px; cursor: pointer; color: var(--yazi); }
+  #uyeListesi label:hover { background: var(--vurgu-acik); }
+  #uyeListesi input:disabled + .avatar { opacity: .8; }
+  .hata { color: var(--kirmizi); font-size: 13.5px; }
+  #hatirlatmalar:empty { display: none; }
+  .hatirlatma { display: flex; gap: 10px; align-items: center; padding: 10px 20px; background: var(--sari-acik); border-bottom: 1px solid var(--kenar); font-weight: 600; }
+  .hatirlatma span { flex: 1; }
+  .mesaj a.resim { display: inline-block; margin-top: 4px; border-radius: 12px; overflow: hidden; border: 1px solid var(--kenar); max-width: min(360px, 100%); line-height: 0; }
+  .mesaj a.resim img { max-width: 100%; max-height: 280px; object-fit: cover; display: block; background: var(--zemin); }
+  #orta.surukle { outline: 3px dashed var(--vurgu); outline-offset: -10px; }
 
   body.konuk #yan, body.konuk #mesajlar, body.konuk #yazma, body.konuk #uyari,
   body.konuk #cagriDugme, body.konuk #baglantiDugme, body.konuk #planDugme { display: none; }
@@ -324,10 +341,12 @@
     <div id="baslik">
       <h1 id="kanalAdi"></h1>
       <span id="cagriBilgi"></span>
+      <button id="uyeDugme" hidden title="Bu özel kanalın üyeleri"><i data-lucide="users"></i><span class="etiket">Üyeler</span></button>
       <button id="planDugme" title="İleri tarihli toplantı oluştur, sohbete kartını gönder"><i data-lucide="calendar-plus"></i>Planla</button>
       <button id="baglantiDugme" title="Linke sahip olan herkes, ERP girişi olmadan bu görüşmeye katılabilir"><i data-lucide="link-2"></i>Görüşme bağlantısı</button>
       <button id="cagriDugme" class="ana"><i data-lucide="video"></i><span class="etiket">Görüşme başlat</span></button>
     </div>
+    <div id="hatirlatmalar" aria-live="polite"></div>
     <form id="planPanel" hidden>
       <label>Konu<input id="planKonu" required maxlength="120" placeholder="Haftalık kalite toplantısı"></label>
       <label>Tarih<input id="planTarih" type="date" required></label>
@@ -428,13 +447,27 @@
     <div id="yanitSeridi" hidden><span id="yanitMetin"></span><button type="button" id="yanitIptal" aria-label="Yanıtı iptal et">✕</button></div>
     <form id="yazma">
       <button type="button" id="dosyaDugme" title="Dosya gönder (Drive, en fazla 2 GB)" aria-label="Dosya gönder"><i data-lucide="paperclip"></i></button>
-      <input type="file" id="dosyaSec" hidden>
+      <input type="file" id="dosyaSec" multiple hidden>
       <input id="metin" placeholder="Mesaj yaz…" autocomplete="off" maxlength="4000">
       <button class="ana"><i data-lucide="send-horizontal"></i>Gönder</button>
     </form>
     <div id="uyari"></div>
   </main>
 </div>
+
+<dialog id="kanalPenceresi">
+  <form method="dialog" id="kanalForm">
+    <strong id="kanalPenceresiBaslik">Yeni kanal</strong>
+    <label>Kanal adı <input id="kanalAdiGir" required maxlength="40" placeholder="örnek: kalite-ekibi" autocomplete="off"></label>
+    <label class="satir2"><input type="checkbox" id="kanalOzel"> Özel kanal: yalnız seçtiğin kişiler görür ve katılır</label>
+    <div id="uyeSecimi" hidden>
+      <div class="ust-bilgi" id="uyeBilgi">Üyeleri işaretle</div>
+      <div id="uyeListesi"></div>
+    </div>
+    <div id="kanalHata" class="hata" hidden></div>
+    <div class="satir2"><button value="tamam" class="ana" id="kanalTamam">Kanalı oluştur</button><button value="vazgec" formnovalidate>Vazgeç</button><button type="button" id="kanaldanAyril" hidden>Kanaldan ayrıl</button></div>
+  </form>
+</dialog>
 
 <dialog id="onizleme">
   <form method="dialog">
@@ -512,6 +545,9 @@ const durum = {
   benimOkundu: new Map(),    // kanal → gönderdiğim son okuma zamanı
   yanitlanan: null, duzenlenen: null, silinecek: null,
   arama: null,               // {q, sonuc}
+  // özel kanal → {olusturan, uyeler: Set}; yalnız üyesi olduklarım. Adlar baştan bilinsin ki lobiye sızmasın.
+  ozel: new Map(JSON.parse(localStorage.getItem('ekip_ozel') || '[]').map((k) => [k, { olusturan: null, uyeler: new Set() }])),
+  kisiler: null,             // üye seçimi için onaylı kullanıcılar [{id, ad}]
 };
 const MESAJ_TEPKILERI = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
@@ -540,7 +576,9 @@ async function erpKimligi() {
 
 // ---------- kanallar ve mesajlar ----------
 const dmKanal = (a, b) => 'dm:' + [a, b].sort().join(':');
-const kanalBasligi = (k) => (k.startsWith('dm:') ? (durum.dmAdlari.get(k) || 'Birebir sohbet') : '# ' + k);
+const kanalBasligi = (k) => (k.startsWith('dm:') ? (durum.dmAdlari.get(k) || 'Birebir sohbet') : (durum.ozel.has(k) ? '🔒 ' : '# ') + k);
+// Özel kanalın adı ve görüşmesi lobide herkese yayılmaz (alt oda da ana kanalın kuralına uyar).
+const ozelMi = (k) => !!k && durum.ozel.has(k.split('~')[0]);
 
 function kanalEkle(k, yay) {
   if (k.startsWith('dm:') || durum.kanallar.has(k)) return;
@@ -566,6 +604,7 @@ function mesajAl(m, sessiz) {
     if (m.kanal === durum.aktif) mesajlariCiz();
   }
   if (baskasi && !sessiz) bildir(m.kanal.startsWith('dm:') ? m.yazar_ad : `${m.yazar_ad} · ${kanalBasligi(m.kanal)}`, m.dosya ? '📎 ' + m.dosya.ad : m.metin, m.kanal, bahsedildiMi(m));
+  if (m.toplanti) toplantiyiPlanla(m);
   sekmeBasligi();
 }
 
@@ -838,6 +877,154 @@ function mesajaGit(id) {
   d.classList.remove('vurgulu'); void d.offsetWidth; d.classList.add('vurgulu');
 }
 
+// ---------- toplantı hatırlatma ----------
+// Planlanan toplantıdan (mesajdaki toplantı kartı) 10 dakika önce şerit + masaüstü bildirimi, ikisinde de "Katıl".
+// ponytail: sayfa açıkken çalışır; uygulama kapalıyken hatırlatma için web push gerekir.
+const HATIRLATMA_DK = 10;
+const hatirlatilan = new Set(JSON.parse(localStorage.getItem('ekip_hatirlatilan') || '[]'));
+const hatirlatmaSaatleri = new Map(); // mesaj id → zamanlayıcı
+
+function toplantiyiPlanla(m) {
+  const t = m.toplanti;
+  if (!t || m.silindi || hatirlatilan.has(m.id) || hatirlatmaSaatleri.has(m.id) || zaman(t.bit) < Date.now()) return;
+  const kalan = zaman(t.bas) - HATIRLATMA_DK * 60000 - Date.now();
+  if (kalan > 24 * 3600e3) return; // çok ileridekiler yarım saatlik taramada planlanır
+  hatirlatmaSaatleri.set(m.id, setTimeout(() => toplantiHatirlat(m), Math.max(0, kalan)));
+}
+
+async function toplantilariYukle() {
+  for (const l of durum.mesajlar.values()) l.forEach(toplantiyiPlanla);
+  if (!durum.tabloVar) return;
+  const { data } = await sb.from('ekip_mesaj').select('id, kanal, toplanti, silindi')
+    .not('toplanti', 'is', null).eq('silindi', false).gte('toplanti->>bit', new Date().toISOString()).limit(100);
+  (data || []).forEach(toplantiyiPlanla);
+}
+
+function toplantiHatirlat(m) {
+  hatirlatmaSaatleri.delete(m.id);
+  if (hatirlatilan.has(m.id)) return;
+  hatirlatilan.add(m.id);
+  localStorage.setItem('ekip_hatirlatilan', JSON.stringify([...hatirlatilan].slice(-200)));
+  const t = m.toplanti, dk = Math.round((zaman(t.bas) - Date.now()) / 60000);
+  const ne = dk > 0 ? `${dk} dakika sonra başlıyor` : 'başladı';
+  const serit = el('div', 'hatirlatma'), katil = el('button', 'ana', 'Katıl'), kapat = el('button', null, 'Kapat');
+  serit.append(el('span', null, `📅 ${t.konu} ${ne}`), katil, kapat);
+  katil.onclick = () => { serit.remove(); toplantiyaKatil(t); };
+  kapat.onclick = () => serit.remove();
+  $('hatirlatmalar').append(serit);
+  if ('Notification' in window && Notification.permission === 'granted') {
+    const n = new Notification('📅 ' + t.konu, { body: ne + '. Katılmak için tıkla.', tag: 'toplanti-' + m.id, requireInteraction: true });
+    n.onclick = () => { window.focus(); n.close(); serit.remove(); toplantiyaKatil(t); };
+  }
+}
+
+// Bu uygulamanın görüşme bağlantısıysa aynı sekmede katılır, değilse bağlantıyı açar.
+function toplantiyaKatil(t) {
+  const kod = gorusmeLinkiMi(t.link) && new URL(t.link).searchParams.get('gorusme');
+  if (kod && !durum.cagri) cagriyaKatil('misafir-' + kod);
+  else window.open(t.link, '_blank', 'noopener');
+}
+
+// ---------- özel (üyeli) kanallar ----------
+// Kural veritabanında (kurulum.sql 8): üye olmayan mesajı, görüşmeyi ve LiveKit odasını göremez.
+// Burada yalnız liste, oluşturma ve üye yönetimi var.
+async function ozelKanallariYukle() {
+  if (!durum.tabloVar) return;
+  const [kanallar, uyeler] = await Promise.all([
+    sb.from('ekip_kanal').select('ad, olusturan').eq('ozel', true),
+    sb.from('ekip_kanal_uye').select('kanal, kullanici_id'),
+  ]);
+  if (kanallar.error) return;
+  const onceki = [...durum.ozel.keys()];
+  durum.ozel = new Map(kanallar.data.map((k) => [k.ad, { olusturan: k.olusturan, uyeler: new Set() }]));
+  (uyeler.data || []).forEach((u) => durum.ozel.get(u.kanal)?.uyeler.add(u.kullanici_id));
+  for (const k of onceki) if (!durum.ozel.has(k)) durum.kanallar.delete(k); // çıkarıldığım kanal listemden düşer
+  durum.ozel.forEach((_, k) => durum.kanallar.add(k));
+  localStorage.setItem('ekip_kanallar', JSON.stringify([...durum.kanallar]));
+  localStorage.setItem('ekip_ozel', JSON.stringify([...durum.ozel.keys()]));
+  if (!durum.kanallar.has(durum.aktif) && !durum.aktif.startsWith('dm:')) kanalaGec('genel');
+  kanallariCiz(); basligiCiz(); lobiDurumuYay();
+}
+
+// Üye seçimi listesi: onaylı ERP kullanıcıları (kimse ad yazmaz, işaretler). Yerelde şu an çevrimiçi olanlar.
+async function kisileriGetir() {
+  if (!durum.kisiler && durum.tabloVar) {
+    const { data, error } = await sb.rpc('ekip_kisiler');
+    if (!error) durum.kisiler = data;
+  }
+  const liste = durum.kisiler || [...durum.cevrimici].map(([id, k]) => ({ id, ad: k.ad }));
+  return liste.filter((k) => k.id !== durum.ben.id);
+}
+
+// duzenlenen yoksa yeni kanal; özel kanal adı verilirse üyeleri (yalnız açan kişi değiştirir).
+async function kanalPenceresiAc(duzenlenen) {
+  const oz = duzenlenen && durum.ozel.get(duzenlenen), sahibim = !oz || oz.olusturan === durum.ben.id;
+  $('kanalPenceresiBaslik').textContent = oz ? `🔒 ${duzenlenen} üyeleri` : 'Yeni kanal';
+  $('kanalAdiGir').value = oz ? duzenlenen : ''; $('kanalAdiGir').readOnly = !!oz;
+  $('kanalOzel').checked = !!oz; $('kanalOzel').disabled = !!oz;
+  $('kanalTamam').textContent = oz ? 'Üyeleri kaydet' : 'Kanalı oluştur'; $('kanalTamam').hidden = !sahibim;
+  $('kanaldanAyril').hidden = !oz || sahibim;
+  $('kanalHata').hidden = true;
+  $('uyeBilgi').textContent = sahibim ? 'Üyeleri işaretle. Sen her zaman üyesin.' : 'Üyeleri yalnız kanalı açan kişi değiştirebilir.';
+  const kisiler = await kisileriGetir();
+  $('uyeListesi').replaceChildren(...kisiler.map((k) => {
+    const l = el('label'), c = el('input');
+    c.type = 'checkbox'; c.value = k.id; c.checked = !!oz && oz.uyeler.has(k.id); c.disabled = !sahibim;
+    l.append(c, avatar(k.ad), el('span', null, k.ad));
+    return l;
+  }));
+  if (!kisiler.length) $('uyeListesi').append(el('div', 'bilgi', 'Seçilecek kişi bulunamadı.'));
+  $('uyeSecimi').hidden = !$('kanalOzel').checked;
+  $('kanalPenceresi').showModal();
+  if (!oz) $('kanalAdiGir').focus();
+}
+
+async function kanalKaydet() {
+  const ad = $('kanalAdiGir').value.trim().toLocaleLowerCase('tr-TR').replace(/\s+/g, '-').replace(/[:~]/g, '').slice(0, 40);
+  const ozel = $('kanalOzel').checked, oz = durum.ozel.get(ad);
+  const secili = [...$('uyeListesi').querySelectorAll('input:checked')].map((c) => c.value);
+  const hata = (metin) => { $('kanalHata').textContent = metin; $('kanalHata').hidden = false; return false; };
+  if (!ad || ad.startsWith('misafir-') || ad.startsWith('dm')) return hata('Geçerli bir kanal adı yaz.');
+  if (!ozel) { kanalEkle(ad, true); kanalaGec(ad); return true; } // açık kanal: eskisi gibi adıyla var olur
+  if (!oz && durum.kanallar.has(ad)) return hata('Bu adda bir kanal zaten var; başka bir ad seç.');
+  if (durum.tabloVar) {
+    if (!oz) {
+      const { error } = await sb.from('ekip_kanal').insert({ ad, ozel: true });
+      if (error) return hata(error.code === '23505' || error.code === '42501' ? 'Bu adda bir kanal zaten var; başka bir ad seç.' : 'Kanal açılamadı: ' + error.message);
+    }
+    const eski = oz ? oz.uyeler : new Set(), yeni = new Set([durum.ben.id, ...secili]);
+    const eklenecek = [...yeni].filter((id) => !eski.has(id)), cikacak = [...eski].filter((id) => !yeni.has(id));
+    if (eklenecek.length) {
+      const { error } = await sb.from('ekip_kanal_uye').insert(eklenecek.map((id) => ({ kanal: ad, kullanici_id: id })));
+      if (error) return hata('Üyeler eklenemedi: ' + error.message);
+    }
+    if (cikacak.length) {
+      const { error } = await sb.from('ekip_kanal_uye').delete().eq('kanal', ad).in('kullanici_id', cikacak);
+      if (error) return hata('Üyeler çıkarılamadı: ' + error.message);
+    }
+    await ozelKanallariYukle();
+  } else {
+    // Yerel deneme: kural veritabanında olduğundan burada yalnız görünüm
+    durum.ozel.set(ad, { olusturan: durum.ben.id, uyeler: new Set([durum.ben.id, ...secili]) });
+    localStorage.setItem('ekip_ozel', JSON.stringify([...durum.ozel.keys()]));
+    kanalEkle(ad, false);
+  }
+  kanalaGec(ad);
+  return true;
+}
+
+async function kanaldanAyril(ad) {
+  if (durum.tabloVar) {
+    const { error } = await sb.from('ekip_kanal_uye').delete().eq('kanal', ad).eq('kullanici_id', durum.ben.id);
+    if (error) { $('kanalHata').textContent = 'Ayrılamadın: ' + error.message; $('kanalHata').hidden = false; return; }
+  }
+  durum.ozel.delete(ad); durum.kanallar.delete(ad);
+  localStorage.setItem('ekip_kanallar', JSON.stringify([...durum.kanallar]));
+  localStorage.setItem('ekip_ozel', JSON.stringify([...durum.ozel.keys()]));
+  $('kanalPenceresi').close();
+  kanalaGec('genel');
+}
+
 // ---------- bildirim ----------
 function bildir(baslik, govde, kanal, onemli) {
   if (!document.hidden || !('Notification' in window) || Notification.permission !== 'granted') return;
@@ -947,11 +1134,8 @@ function mesajCiz(m, benimSon, onceki) {
       if (yeni && yeni !== m.metin) mesajDegistir(m, { metin: yeni }); else mesajlariCiz();
     }));
   } else if (m.toplanti) d.append(toplantiKarti(m.toplanti));
-  else if (m.dosya && /^https:\/\/drive\.google\.com\//.test(m.dosya.url)) {
-    const a = el('a', 'dosya', `📎 ${m.dosya.ad} · ${boyutYaz(m.dosya.boyut)}`);
-    a.href = m.dosya.url; a.target = '_blank'; a.rel = 'noopener';
-    d.append(a);
-  } else d.append(metniCiz(m.metin));
+  else if (m.dosya && /^https:\/\/drive\.google\.com\//.test(m.dosya.url)) d.append(dosyaOgesi(m.dosya));
+  else d.append(metniCiz(m.metin));
   if (durum.silinecek === m.id) {
     const onay = el('div', 'satir-form'), evet = el('button', 'tehlike', 'Sil'), hayir = el('button', null, 'Vazgeç');
     evet.onclick = () => { durum.silinecek = null; mesajDegistir(m, { silindi: true }); };
@@ -974,6 +1158,21 @@ function mesajCiz(m, benimSon, onceki) {
   if (benimSon) { const g = gorenlerMetni(m); if (g) d.append(el('div', 'gorenler', g)); }
   if (!m.silindi) d.append(mesajAraclari(m, benim));
   return d;
+}
+
+// Resim sohbette küçük önizlemeyle görünür (Drive'ın küçük resim adresi, dosya bağlantıyla paylaşıldığı için açık);
+// önizleme açılmazsa dosya bağlantısına döner.
+const resimMi = (f) => /^image\//.test(f.tur || '') || /\.(png|jpe?g|gif|webp|bmp|heic|heif)$/i.test(f.ad || '');
+function dosyaOgesi(f) {
+  const bag = () => { const a = el('a', 'dosya', `📎 ${f.ad} · ${boyutYaz(f.boyut)}`); a.href = f.url; a.target = '_blank'; a.rel = 'noopener'; return a; };
+  const id = (/\/d\/([-\w]{20,})/.exec(f.url) || [])[1];
+  if (!id || !resimMi(f)) return bag();
+  const a = el('a', 'resim'), img = el('img');
+  a.href = f.url; a.target = '_blank'; a.rel = 'noopener'; a.title = f.ad;
+  img.src = `https://drive.google.com/thumbnail?id=${id}&sz=w720`; img.alt = f.ad; img.loading = 'lazy';
+  img.onerror = () => a.replaceWith(bag());
+  a.append(img);
+  return a;
 }
 
 function mesajAraclari(m, benim) {
@@ -1024,6 +1223,9 @@ function basligiCiz() {
   $('cagriDugme').hidden = !!durum.cagri;
   $('baglantiDugme').hidden = !!durum.cagri;
   yaz('cagriDugme', n ? 'Görüşmeye katıl' : 'Görüşme başlat');
+  const oz = durum.ozel.get(durum.aktif);
+  $('uyeDugme').hidden = !oz;
+  if (oz) yaz('uyeDugme', `${oz.uyeler.size} üye`);
 }
 
 const boyutYaz = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
@@ -1046,8 +1248,8 @@ function cagriSayilari() {
 function lobiDurumuYay() {
   if (!durum.lobi) return;
   const k = durum.cagri && (durum.cagri.anaKanal || durum.cagri.kanal); // alt odadayken ana kanal görünür
-  const cagri = k && !k.startsWith('misafir-') ? k : null;
-  durum.lobi.track({ ad: durum.ben.ad, cagri, kanallar: [...durum.kanallar], durum: durum.durumum });
+  const cagri = k && !k.startsWith('misafir-') && !ozelMi(k) ? k : null;
+  durum.lobi.track({ ad: durum.ben.ad, cagri, kanallar: [...durum.kanallar].filter((x) => !ozelMi(x)), durum: durum.durumum });
 }
 
 function lobiyeBaglan() {
@@ -1084,6 +1286,7 @@ function lobiyeBaglan() {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'ekip_mesaj' }, ({ new: m }) => mesajGuncelAl(m))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ekip_tepki' }, ({ new: t }) => t && t.mesaj_id && tepkiAl(t))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'ekip_okundu' }, ({ new: o }) => o && o.kanal && okunduAl(o))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ekip_kanal_uye' }, () => ozelKanallariYukle())
       .subscribe();
   }
 }
@@ -1545,8 +1748,15 @@ async function dosyaGonder(f) {
       try { y.yaz(f); j = await y.bitir(); } finally { clearInterval(sayac); }
     }
     $('uyari').textContent = '';
-    await gonder('📎 ' + f.name, { ad: f.name, url: j.url, boyut: j.boyut });
+    await gonder('📎 ' + f.name, { ad: f.name, url: j.url, boyut: j.boyut, tur: f.type || '' });
   } catch (e) { $('uyari').textContent = 'Dosya yüklenemedi: ' + e.message; }
+}
+
+// 📎, yapıştırılan ekran görüntüsü ve sürüklenen dosyalar aynı yoldan sırayla Drive'a gider.
+async function dosyalariGonder(dosyalar) {
+  if (!dosyalar.length || KONUK) return;
+  if (!DOSYA_URL || YEREL) { $('uyari').textContent = 'Yerel denemede dosya gönderilemez (Drive yüklemesi ERP oturumu ister).'; return; }
+  for (const f of dosyalar) await dosyaGonder(f);
 }
 
 // ---------- görüşme kaydı ----------
@@ -2747,11 +2957,38 @@ async function basla() {
   $('uygulama').hidden = false;
   $('ben').textContent = 'Giriş: ' + durum.ben.ad + (YEREL ? ' (yerel deneme)' : '');
   await tabloyuDene();
+  await ozelKanallariYukle(); // lobiye bağlanmadan önce: özel kanal adları lobiye yayılmasın
   lobiyeBaglan();
-  $('kanalEkle').onclick = () => {
-    const ad = (prompt('Yeni kanalın adı') || '').trim().toLowerCase().replace(/\s+/g, '-').slice(0, 40);
-    if (ad) { kanalEkle(ad, true); kanalaGec(ad); }
+  toplantilariYukle();
+  setInterval(toplantilariYukle, 30 * 60000);
+  $('kanalEkle').onclick = () => kanalPenceresiAc();
+  $('uyeDugme').onclick = () => kanalPenceresiAc(durum.aktif);
+  $('kanalOzel').onchange = (e) => { $('uyeSecimi').hidden = !e.target.checked; };
+  $('kanaldanAyril').onclick = () => kanaldanAyril($('kanalAdiGir').value);
+  $('kanalForm').onsubmit = async (e) => {
+    if (!e.submitter || e.submitter.value !== 'tamam') return; // Vazgeç pencereyi kapatır
+    e.preventDefault();
+    $('kanalTamam').disabled = true;
+    try { if (await kanalKaydet()) $('kanalPenceresi').close(); } finally { $('kanalTamam').disabled = false; }
   };
+  $('metin').addEventListener('paste', (e) => {
+    const dosyalar = [...((e.clipboardData && e.clipboardData.files) || [])];
+    if (!dosyalar.length) return;
+    e.preventDefault();
+    const an = new Date().toLocaleString('tr-TR').replace(/[/:]/g, '-');
+    // Panodan gelen ekran görüntüsünün adı "image.png" olur: tarihli ad verilir
+    dosyalariGonder(dosyalar.map((f, i) => (f.name && f.name !== 'image.png' ? f
+      : new File([f], `Ekran görüntüsü ${an}${i ? ' ' + (i + 1) : ''}.${(f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`, { type: f.type }))));
+  });
+  const orta = $('orta');
+  orta.addEventListener('dragover', (e) => { if (!KONUK && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); orta.classList.add('surukle'); } });
+  orta.addEventListener('dragleave', (e) => { if (!orta.contains(e.relatedTarget)) orta.classList.remove('surukle'); });
+  orta.addEventListener('drop', (e) => {
+    orta.classList.remove('surukle');
+    if (!e.dataTransfer.files.length) return;
+    e.preventDefault();
+    dosyalariGonder([...e.dataTransfer.files]);
+  });
   $('yazma').onsubmit = (e) => { e.preventDefault(); const m = $('metin').value.trim(); if (m) { $('metin').value = ''; $('oneriler').hidden = true; gonder(m); } };
   $('metin').oninput = () => { onerileriGoster(); if ($('metin').value.trim()) yaziyorYay(); };
   $('yanitIptal').onclick = yanitIptal;
@@ -2766,8 +3003,9 @@ async function basla() {
   $('planPanel').onsubmit = (e) => { e.preventDefault(); toplantiPlanla(); };
   $('baglantiKopyala').onclick = () => navigator.clipboard.writeText($('baglantiMetin').value).then(() => { $('baglantiKopyala').textContent = 'Kopyalandı'; });
   $('dosyaDugme').hidden = !DOSYA_URL || YEREL;
+  if (DOSYA_URL && !YEREL) $('metin').placeholder = 'Mesaj yaz… Resim ya da dosyayı yapıştırabilir veya sürükleyebilirsin';
   $('dosyaDugme').onclick = () => $('dosyaSec').click();
-  $('dosyaSec').onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) dosyaGonder(f); };
+  $('dosyaSec').onchange = (e) => { const f = [...e.target.files]; e.target.value = ''; dosyalariGonder(f); };
   bildirimDugmesi();
   // Chrome/Edge kurulabilir olduğunu bildirince düğme çıkar; iPhone'da Safari → Paylaş → Ana Ekrana Ekle.
   window.addEventListener('beforeinstallprompt', (e) => {
