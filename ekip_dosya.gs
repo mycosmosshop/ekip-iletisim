@@ -32,6 +32,7 @@ function doPost(e) {
     }
     const kullanici = kullaniciDogrula(g.token);
     if (g.islem === 'ozet') return yanit(toplantiOzeti(g));
+    if (g.islem === 'kacirdiklar') return yanit(kacirdiklar(g));
     if (g.islem === 'cevir') return yanit(cevir(g));
     if (g.islem === 'baslat') return yanit(oturumBaslat(g, kullanici));
     if (g.islem === 'parca') return yanit(parcaGonder(g));
@@ -132,6 +133,18 @@ function toplantiOzeti(g) {
     'Türkçe, en fazla 3000 karakter yaz. Markdown kullanma; başlıkları büyük harfle, maddeleri "• " ile yaz. Bölümler:\n' +
     'ÖZET (3-6 madde)\nKARARLAR\nAKSİYONLAR (her biri: kim — ne — ne zaman; dökümde yoksa "belirtilmedi")\nAÇIK KALAN SORULAR\n' +
     'Dökümde geçmeyen bilgi, kişi, tarih ekleme. Bir bölüm boşsa "Yok" yaz.';
+  return { ok: true, ozet: claude(sistem, metin) };
+}
+
+// Kanala geç gelen kişi için okumadığı mesajların özeti (yalnız ona gösterilir, kanala yazılmaz).
+function kacirdiklar(g) {
+  const metin = String(g.metin || '').slice(0, 120000);
+  if (!metin.trim()) throw new Error('Özetlenecek mesaj yok');
+  const sistem = 'Bir iş ekibinin sohbet kanalında, kullanıcı yokken yazılmış mesajları alacaksın. Kanal: ' + String(g.konu || '-').slice(0, 120) +
+    '. Kullanıcının adı: ' + String(g.ben || '-').slice(0, 60) + '.\n' +
+    'Kullanıcının hızlıca neyi kaçırdığını anlaması için Türkçe, en fazla 1500 karakter yaz. Markdown kullanma; maddeleri "• " ile yaz.\n' +
+    'Önce 2-5 maddede ne konuşulduğu. Sonra varsa "SENDEN BEKLENEN" (kullanıcıya soru, istek, görev) ve "KARARLAR" bölümleri; yoksa o bölümü yazma.\n' +
+    'Kimin ne dediğini adıyla belirt. Mesajlarda geçmeyen bilgi ekleme.';
   return { ok: true, ozet: claude(sistem, metin) };
 }
 
