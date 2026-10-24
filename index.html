@@ -172,6 +172,12 @@
   #sahne { flex: 1; display: grid; padding: 12px; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-content: start; overflow: auto; }
   .karo { position: relative; background: var(--video); border-radius: 14px; overflow: hidden; aspect-ratio: 16 / 9; cursor: pointer; }
   .karo video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* Kamera kapalıyken: baş harfler ya da profil resmi */
+  .karo { container-type: inline-size; }
+  .karo .kamsiz { position: absolute; inset: 0; display: none; place-items: center; background: var(--sahne-2); }
+  .karo.kam-kapali .kamsiz { display: grid; }
+  .karo .kamsiz .avatar { width: 30cqi; height: 30cqi; max-width: 132px; max-height: 132px; font-size: min(11cqi, 48px); overflow: hidden; }
+  .karo .kamsiz .avatar img { width: 100%; height: 100%; object-fit: cover; }
   .karo.ben video { transform: scaleX(-1); }
   .karo.ekran video { transform: none; object-fit: contain; }
   .karo video:picture-in-picture { transform: none; } /* tarayıcının "resim içinde resim" yazısı ayna gibi ters çıkmasın */
@@ -493,6 +499,8 @@
       <label>Kamera<select id="secKam"></select></label>
       <label>Hoparlör<select id="secHop"></select></label>
       <label><input type="checkbox" id="secIsik"> Işığı artır</label>
+      <span class="satir2" title="Kamera kapalıyken karonda görünür; yoksa adının baş harfleri">Profil resmi <button type="button" id="fotoSec">Seç…</button><button type="button" id="fotoSil">Kaldır</button></span>
+      <input type="file" id="fotoDosya" accept="image/*" hidden>
       <div id="secArka" class="arka-izgara" role="radiogroup" aria-label="Arka plan"></div>
       <input type="file" id="arkaResim" accept="image/*" hidden>
     </div>
@@ -1406,7 +1414,42 @@ function karoEkle(id, ad, akis, ben) {
   }
   k.querySelector('video').srcObject = akis;
   k.querySelector('span.ad').textContent = ad;
+  if (durum.cagri) kamsizGuncelle();
   return k;
+}
+
+// Kamera kapalıyken karoda baş harfler ya da kişinin yüklediği profil resmi görünür. Resim presence ile yalnız
+// görüşmedekilere gider (128 px JPEG, birkaç KB), hiçbir yere kaydedilmez.
+const fotoGecerli = (f) => typeof f === 'string' && f.startsWith('data:image/jpeg;base64,') && f.length < 40000;
+function kamsizCiz(id, ad, kamAcik, foto) {
+  const k = karo(id);
+  if (!k) return;
+  k.classList.toggle('kam-kapali', !kamAcik);
+  let o = k.querySelector('.kamsiz');
+  if (!o) { o = el('div', 'kamsiz'); k.querySelector('span.ad').before(o); }
+  const anahtar = (fotoGecerli(foto) ? foto : '') + '|' + ad;
+  if (o.dataset.anahtar === anahtar) return;
+  o.dataset.anahtar = anahtar;
+  const a = avatar(ad);
+  if (fotoGecerli(foto)) { const i = el('img'); i.src = foto; i.alt = ''; a.replaceChildren(i); }
+  o.replaceChildren(a);
+}
+function kamsizGuncelle() {
+  const c = durum.cagri, kam = c.yerel.getVideoTracks()[0];
+  kamsizCiz(durum.ben.id, durum.ben.ad, !!c.ekran || (!!kam && kam.enabled), localStorage.getItem('ekip_foto'));
+  for (const [id, g] of c.katilanlar) kamsizCiz(id, g.ad, g.ekran || g.kam !== false, g.foto); // eski sürümde kam bilgisi yok: açık say
+}
+
+// Profil resmi: ortadan kare kırpılıp 128 px JPEG'e küçültülür, bu tarayıcıda saklanır.
+async function profilResmiSecildi(dosya) {
+  if (!dosya) return;
+  const img = new Image(); img.src = URL.createObjectURL(dosya);
+  try { await new Promise((ok, red) => { img.onload = ok; img.onerror = red; }); } catch (e) { $('uyari').textContent = 'Resim açılamadı.'; return; }
+  const t = Object.assign(document.createElement('canvas'), { width: 128, height: 128 }), k = Math.min(img.width, img.height);
+  t.getContext('2d').drawImage(img, (img.width - k) / 2, (img.height - k) / 2, k, k, 0, 0, 128, 128);
+  localStorage.setItem('ekip_foto', t.toDataURL('image/jpeg', 0.8));
+  URL.revokeObjectURL(img.src);
+  if (durum.cagri) cagriDurumuYay();
 }
 
 const gonderilecekVideo = () => durum.cagri.ekran || (durum.cagri.arka && durum.cagri.arka.iz) || durum.cagri.yerel.getVideoTracks()[0] || null;
@@ -1533,7 +1576,7 @@ function eslesmeyiGuncelle() {
   // Açık anket/sorular içeri alınan her kişiye bir kez aktarılır (bekleme salonundakine gitmez).
   for (const id of onceki.keys()) if (!c.katilanlar.has(id)) c.aktarilan.delete(id);
   if (benIzinli) for (const [id, g] of c.katilanlar) if (izinli(id, g) && !c.aktarilan.has(id)) { c.aktarilan.add(id); durumAktar(id); }
-  bekleyenleriCiz(); kayitSeridiCiz(); kisileriCizCagri(); izinleriUygula(); yalnizlikCiz();
+  bekleyenleriCiz(); kayitSeridiCiz(); kisileriCizCagri(); izinleriUygula(); yalnizlikCiz(); kamsizGuncelle();
   if (!c.altyazi && [...c.katilanlar.values()].some((g) => g.altyazi)) altyaziAcKapa(true, false); // sonradan katılan da altyazıya girer
   if (!c.tahta && benIzinli && [...c.katilanlar.values()].some((g) => g.tahta)) tahtaAcKapa(true, false); // açık tahtayı görür
 }
@@ -1734,7 +1777,9 @@ const cagriDurumuYay = () => {
   const c = durum.cagri, mik = c.yerel.getAudioTracks()[0];
   c.ch.track({ ad: durum.ben.ad, katilma: c.katilma, bas: c.baslangic, el: c.el, erp: c.erp, kabuller: [...c.kabuller], cikarilanlar: [...c.cikarilanlar],
                kayit: !!c.kayit, altyazi: c.altyazi, tahta: c.tahta, mik: !!mik && mik.enabled, ekran: !!c.ekran, sfu: !!c.sfu,
-               kilit: c.kilit, izinler: c.izinler, sureDk: c.sureDk || 0 });
+               kilit: c.kilit, izinler: c.izinler, sureDk: c.sureDk || 0, kam: !!c.yerel.getVideoTracks()[0]?.enabled,
+               foto: localStorage.getItem('ekip_foto') || null });
+  kamsizGuncelle();
 };
 
 function mikKamDugmeleri() {
@@ -2468,7 +2513,8 @@ function izAcKapa(tur, dugme) {
   if (!t) return;
   t.enabled = !t.enabled;
   if (tur === 'video' && durum.cagri.arka) durum.cagri.arka.iz.enabled = t.enabled;
-  if (tur === 'ses') { tanimayiAyarla(); cagriDurumuYay(); } // mikrofon kapalıyken konuşma yazıya çevrilmez; kişiler listesinde 🔇
+  if (tur === 'ses') tanimayiAyarla(); // mikrofon kapalıyken konuşma yazıya çevrilmez
+  cagriDurumuYay(); // kişiler listesinde 🔇, kamera kapalıysa karoda baş harfler
   dugme.setAttribute('aria-pressed', String(t.enabled));
 }
 
@@ -3213,6 +3259,9 @@ function cagriDugmeleriniBagla() {
     durum.cagri.ch.send({ type: 'broadcast', event: 'gsohbet', payload: m });
     gSohbetEkle(m);
   };
+  $('fotoSec').onclick = () => { $('fotoDosya').value = ''; $('fotoDosya').click(); };
+  $('fotoDosya').onchange = (e) => profilResmiSecildi(e.target.files[0]);
+  $('fotoSil').onclick = () => { localStorage.removeItem('ekip_foto'); if (durum.cagri) cagriDurumuYay(); };
   $('arkaDugme').onclick = async () => {
     $('dahaMenu').hidePopover();
     $('cihazPanel').hidden = false; await cihazlariDoldur();
