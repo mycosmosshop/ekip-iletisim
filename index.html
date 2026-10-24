@@ -153,7 +153,10 @@
   #planPanel { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--kenar); font-size: 13px; }
   #planPanel label { display: grid; gap: 3px; color: var(--soluk); }
   #baglantiKutu { display: flex; gap: 8px; align-items: center; padding: 10px 20px; background: var(--vurgu-acik); font-size: 13.5px; }
+  #baglantiKutu { flex-wrap: wrap; }
   #baglantiKutu input { flex: 1; min-width: 0; }
+  #baglantiKapat { border: 0; background: transparent; padding: 4px 8px; }
+  #baglantiNot { flex-basis: 100%; font-size: 12.5px; color: var(--soluk); }
   #beklemeMesaji { padding: 14px 20px; background: var(--sari-acik); font-size: 14.5px; }
   #bekleyenler { display: flex; flex-direction: column; gap: 6px; padding: 8px 16px; background: var(--sahne-2); color: #fff; font-size: 13.5px; }
   .bekleyen { display: flex; gap: 8px; align-items: center; }
@@ -174,6 +177,10 @@
   .karo span.ad { position: absolute; left: 10px; bottom: 8px; max-width: calc(100% - 20px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                   color: #fff; background: rgb(8 20 24 / .62); padding: 3px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600; backdrop-filter: blur(6px); }
   .karo.buyuk { grid-column: 1 / -1; }
+  .bekleme-kart { aspect-ratio: 16 / 9; border: 2px dashed rgb(255 255 255 / .2); border-radius: 14px; display: grid; place-content: center; justify-items: center;
+                  gap: 10px; padding: 20px; text-align: center; color: #e6efed; }
+  .bekleme-kart strong { font: 600 18px/1.3 var(--yazi-baslik); }
+  .bekleme-kart span { color: var(--murekkep-soluk); font-size: 14px; max-width: 36ch; }
   .karo:fullscreen video { object-fit: contain; transform: none; }
   /* Sahnenin tek parlak öğesi: konuşanın çevresinde sünger sarısı */
   .karo.konusuyor { box-shadow: 0 0 0 3px var(--sari), 0 0 26px rgb(242 190 46 / .4); }
@@ -343,7 +350,7 @@
       <span id="cagriBilgi"></span>
       <button id="uyeDugme" hidden title="Bu özel kanalın üyeleri"><i data-lucide="users"></i><span class="etiket">Üyeler</span></button>
       <button id="planDugme" title="İleri tarihli toplantı oluştur, sohbete kartını gönder"><i data-lucide="calendar-plus"></i>Planla</button>
-      <button id="baglantiDugme" title="Linke sahip olan herkes, ERP girişi olmadan bu görüşmeye katılabilir"><i data-lucide="link-2"></i>Görüşme bağlantısı</button>
+      <button id="baglantiDugme" title="Linke sahip olan herkes, ERP girişi olmadan bu görüşmeye katılabilir"><i data-lucide="link-2"></i><span class="etiket">Görüşme bağlantısı</span></button>
       <button id="cagriDugme" class="ana"><i data-lucide="video"></i><span class="etiket">Görüşme başlat</span></button>
     </div>
     <div id="hatirlatmalar" aria-live="polite"></div>
@@ -357,7 +364,8 @@
       <button type="button" id="planIptal">Vazgeç</button>
     </form>
     <div id="baglantiKutu" hidden>
-      <span>Bu linki gönder:</span><input id="baglantiMetin" readonly><button id="baglantiKopyala">Kopyala</button>
+      <span id="baglantiAciklama">Bu linki gönder:</span><input id="baglantiMetin" readonly><button id="baglantiKopyala">Kopyala</button><button id="baglantiKapat" aria-label="Kapat" title="Kapat">✕</button>
+      <span id="baglantiNot" hidden>Ekip dışından birini çağırmak için görüşmeyi kanaldan değil, “Görüşme bağlantısı” ile başlat.</span>
     </div>
     <div id="beklemeMesaji" hidden></div>
     <div id="bekleyenler" hidden></div>
@@ -1221,7 +1229,9 @@ function basligiCiz() {
   const misafirde = durum.cagri && durum.cagri.kanal.startsWith('misafir-');
   $('cagriBilgi').textContent = misafirde ? 'Bağlantılı görüşmedesin' : n && !bende ? `Görüşme sürüyor · ${n} kişi` : '';
   $('cagriDugme').hidden = !!durum.cagri;
-  $('baglantiDugme').hidden = !!durum.cagri;
+  // Görüşmedeyken aynı düğme süren görüşmenin davet bağlantısını verir
+  yaz('baglantiDugme', durum.cagri ? 'Davet et' : 'Görüşme bağlantısı');
+  $('baglantiDugme').title = durum.cagri ? 'Bu görüşmenin bağlantısını kopyala' : 'Linke sahip olan herkes, ERP girişi olmadan bu görüşmeye katılabilir';
   yaz('cagriDugme', n ? 'Görüşmeye katıl' : 'Görüşme başlat');
   const oz = durum.ozel.get(durum.aktif);
   $('uyeDugme').hidden = !oz;
@@ -1464,9 +1474,25 @@ function eslesmeyiGuncelle() {
   // Açık anket/sorular içeri alınan her kişiye bir kez aktarılır (bekleme salonundakine gitmez).
   for (const id of onceki.keys()) if (!c.katilanlar.has(id)) c.aktarilan.delete(id);
   if (benIzinli) for (const [id, g] of c.katilanlar) if (izinli(id, g) && !c.aktarilan.has(id)) { c.aktarilan.add(id); durumAktar(id); }
-  bekleyenleriCiz(); kayitSeridiCiz(); kisileriCizCagri(); izinleriUygula();
+  bekleyenleriCiz(); kayitSeridiCiz(); kisileriCizCagri(); izinleriUygula(); yalnizlikCiz();
   if (!c.altyazi && [...c.katilanlar.values()].some((g) => g.altyazi)) altyaziAcKapa(true, false); // sonradan katılan da altyazıya girer
   if (!c.tahta && benIzinli && [...c.katilanlar.values()].some((g) => g.tahta)) tahtaAcKapa(true, false); // açık tahtayı görür
+}
+
+// Görüşmede tek başınayken sahnede bekleme kartı ve davet düğmesi (Meet'teki "başka kimse yok" ekranı).
+function yalnizlikCiz() {
+  const c = durum.cagri;
+  const yalniz = izinli(durum.ben.id, { erp: c.erp }) && ![...c.katilanlar].some(([id, g]) => izinli(id, g));
+  let kart = $('sahne').querySelector('.bekleme-kart');
+  if (!yalniz) { if (kart) kart.remove(); return; }
+  if (kart) return;
+  kart = el('div', 'bekleme-kart');
+  const davet = el('button', 'ana', 'Davet bağlantısını kopyala');
+  davet.onclick = davetGoster;
+  kart.append(el('strong', null, 'Katılımcıların gelmesi bekleniyor…'),
+    el('span', null, c.kanal.startsWith('misafir-') ? 'Bağlantıyı gönder; gelenler bekleme salonuna düşer, sen içeri alırsın.'
+      : 'Kanaldakiler "Görüşmeye katıl" ile gelebilir; bağlantıyı da gönderebilirsin.'), davet);
+  $('sahne').append(kart);
 }
 
 function bekleyenleriCiz() {
@@ -1610,6 +1636,7 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
   ch.subscribe((s) => { if (s === 'SUBSCRIBED') cagriDurumuYay(); });
   $('gorusme').classList.add('acik'); $('cagriCubugu').classList.add('acik');
   karoEkle(durum.ben.id, durum.ben.ad + ' (sen)', yerel, true);
+  yalnizlikCiz();
   mikKamDugmeleri();
   if (yerel.getAudioTracks()[0]) analizEkle(durum.ben.id, yerel.getAudioTracks()[0]);
   c.olcer = setInterval(konusmayiOlc, 150);
@@ -1677,11 +1704,21 @@ async function cagridanAyril(gecis) {
 async function baglantiOlustur() {
   const kod = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 20);
   const url = `${location.origin}${location.pathname}?gorusme=${kod}`;
+  await cagriyaKatil('misafir-' + kod);
+  if (durum.cagri) davetGoster(); // önizlemede vazgeçilmediyse
+}
+
+// Süren görüşmenin davet bağlantısını gösterir ve panoya kopyalar. Misafirli görüşmenin bağlantısını herkes açar;
+// kanal görüşmesininkini yalnız ERP kullanıcıları (kanal görüşmesi ERP'ye kapalı özel kanaldadır).
+async function davetGoster() {
+  const k = durum.cagri.anaKanal || durum.cagri.kanal, misafir = k.startsWith('misafir-');
+  const url = location.origin + location.pathname + (misafir ? '?gorusme=' + k.slice(8) : '?kanal=' + encodeURIComponent(k) + '&katil=1');
   $('baglantiMetin').value = url;
+  $('baglantiAciklama').textContent = misafir ? 'Bu linke sahip olan herkes katılabilir (ERP girişi gerekmez):' : "ERP'deki ekip arkadaşların bu linkle doğrudan görüşmeye girer:";
+  $('baglantiNot').hidden = misafir;
+  $('baglantiKutu').hidden = false;
   $('baglantiKopyala').textContent = 'Kopyala';
   try { await navigator.clipboard.writeText(url); $('baglantiKopyala').textContent = 'Kopyalandı'; } catch (e) { /* elle kopyalanır */ }
-  await cagriyaKatil('misafir-' + kod);
-  $('baglantiKutu').hidden = false;
 }
 
 const blobBase64 = (b) => new Promise((ok, hata) => {
@@ -2997,7 +3034,8 @@ async function basla() {
   $('durumSec').value = durum.durumum;
   $('durumSec').onchange = (e) => { durum.durumum = e.target.value; localStorage.setItem('ekip_durum', durum.durumum); lobiDurumuYay(); };
   $('cagriDugme').onclick = () => cagriyaKatil();
-  $('baglantiDugme').onclick = baglantiOlustur;
+  $('baglantiDugme').onclick = () => (durum.cagri ? davetGoster() : baglantiOlustur());
+  $('baglantiKapat').onclick = () => { $('baglantiKutu').hidden = true; };
   $('planDugme').onclick = planPaneliAc;
   $('planIptal').onclick = () => { $('planPanel').hidden = true; };
   $('planPanel').onsubmit = (e) => { e.preventDefault(); toplantiPlanla(); };
@@ -3018,7 +3056,12 @@ async function basla() {
     if (!document.hidden) okunduGonder();
   });
   cagriDugmeleriniBagla();
-  kanalaGec('genel');
+  // Kanal görüşmesi davet bağlantısı (?kanal=…&katil=1): o kanala geç, katılma önizlemesini aç.
+  // Kanal listeye eklenmez: özel kanalsa ve üye değilsen adı lobiye taşınmasın (erişimi veritabanı keser).
+  const p = new URLSearchParams(location.search), davetKanal = p.get('kanal');
+  if (davetKanal) history.replaceState(null, '', location.pathname);
+  await kanalaGec(davetKanal || 'genel');
+  if (davetKanal && p.has('katil')) cagriyaKatil(davetKanal);
 }
 if (window.lucide) lucide.createIcons(); // <i data-lucide="…"> → SVG; ikonlar yüklenemezse düğmeler yazılarıyla kalır
 basla();
