@@ -507,7 +507,7 @@
           <button id="elleriIndir"><i data-lucide="hand"></i>Bütün elleri indir</button>
           <button id="kilitDugme" aria-pressed="false" title="Kilitliyken yeni gelen misafir bekleme salonuna da düşmez"><i data-lucide="lock"></i><span class="etiket">Toplantıyı kilitle</span></button>
           <label><input type="checkbox" id="izinSohbet" checked> Misafirler sohbete yazabilir</label>
-          <label><input type="checkbox" id="izinEkran" checked> Misafirler ekran paylaşabilir</label>
+          <label>Misafir ekran paylaşımı <select id="izinEkran"><option value="izin">İzin isteyerek</option><option value="evet">Serbest</option><option value="hayir">Kapalı</option></select></label>
           <label><input type="checkbox" id="izinTepki" checked> Misafirler tepki gönderebilir</label>
           <div class="satir2"><label>Alt oda <input type="number" id="odaSayi" min="2" max="9" value="2" style="width: 56px"></label><label>Süre (dk) <input type="number" id="odaSure" min="1" max="120" value="10" style="width: 64px"></label></div>
           <button id="odaAc"><i data-lucide="door-open"></i>Alt odaları aç (rastgele dağıt)</button>
@@ -1750,13 +1750,21 @@ const bekleyenDugmeleri = (id) => {
 
 function bekleyenleriCiz() {
   const c = durum.cagri, bekleyenler = bekleyenListesi();
-  $('bekleyenler').replaceChildren(...bekleyenler.map(([id, g]) => {
+  for (const id of c.ekranIstekleri.keys()) if (!c.katilanlar.has(id)) c.ekranIstekleri.delete(id); // ayrılanın isteği düşer
+  const ekranSatirlari = [...c.ekranIstekleri].map(([id, ad]) => {
+    const satir = el('div', 'bekleyen'), ver = el('button', 'ana', 'İzin ver'), red = el('button', null, 'Reddet');
+    ver.onclick = () => ekranIzni(id, true); red.onclick = () => ekranIzni(id, false);
+    satir.append(el('span', null, `🖥️ ${ad} ekranını paylaşmak istiyor`), ver, red);
+    return satir;
+  });
+  $('bekleyenler').replaceChildren(...ekranSatirlari, ...bekleyenler.map(([id, g]) => {
     const satir = el('div', 'bekleyen');
     satir.append(el('span', null, `⏳ ${g.ad} görüşmeye girmek istiyor`), ...bekleyenDugmeleri(id));
     return satir;
   }));
-  $('kisiRozet').textContent = bekleyenler.length;
-  $('kisiRozet').hidden = !bekleyenler.length;
+  const n = bekleyenler.length + c.ekranIstekleri.size;
+  $('kisiRozet').textContent = n;
+  $('kisiRozet').hidden = !n;
   $('kisilerDugme').title = bekleyenler.length ? `Kişiler · ${bekleyenler.length} kişi katılmak istiyor` : 'Kişiler ve katılmak isteyenler';
   for (const [id, g] of bekleyenler) {
     if (c.bildirilen.has(id)) continue;
@@ -1789,6 +1797,12 @@ function komutAl(p) {
     if (mik && mik.enabled) { mik.enabled = false; mikKamDugmeleri(); tanimayiAyarla(); cagriDurumuYay(); }
     $('uyari').textContent = `${p.ad} mikrofonunu kapattı. Konuşmak için Mikrofon düğmesine bas.`;
     gSohbetEkle({ kimden: p.kimden, ad: 'ℹ️', metin: `${p.ad} mikrofonunu kapattı.` }, true);
+  } else if (p.tur === 'kamera-kapat') {
+    // Meet'teki gibi sahip başkasının kamerasını kapatabilir ama açamaz: açmak kişinin kendi kararı.
+    const kam = c.yerel.getVideoTracks()[0];
+    if (kam && kam.enabled) { kam.enabled = false; mikKamDugmeleri(); cagriDurumuYay(); }
+    $('uyari').textContent = `${p.ad} kameranı kapattı. Açmak için Kamera düğmesine bas.`;
+    gSohbetEkle({ kimden: p.kimden, ad: 'ℹ️', metin: `${p.ad} kameranı kapattı.` }, true);
   } else if (p.tur === 'el-indir') { if (c.el) elKaldir(); }
   else if (p.tur === 'bitir') gorusmedenCikti(`${p.ad} görüşmeyi herkes için bitirdi.`);
   else if (p.tur === 'cikar') cikarildin();
@@ -1801,12 +1815,14 @@ async function gorusmedenCikti(not) {
 }
 
 function yonetimDugmeleri(karo, id) {
-  const y = el('div', 'yonetim'), sus = el('button', null, '🔇'), cik = el('button', 'tehlike', '⛔');
+  const y = el('div', 'yonetim'), sus = el('button', null, '🔇'), kam = el('button', null, '📷✕'), cik = el('button', 'tehlike', '⛔');
   sus.title = 'Mikrofonunu kapat'; sus.setAttribute('aria-label', 'Mikrofonunu kapat');
+  kam.title = 'Kamerasını kapat'; kam.setAttribute('aria-label', 'Kamerasını kapat');
   cik.title = 'Görüşmeden çıkar'; cik.setAttribute('aria-label', 'Görüşmeden çıkar');
   sus.onclick = (e) => { e.stopPropagation(); komutGonder('sustur', id); };
+  kam.onclick = (e) => { e.stopPropagation(); komutGonder('kamera-kapat', id); };
   cik.onclick = (e) => { e.stopPropagation(); disariCikar(id); };
-  y.append(sus, cik);
+  y.append(sus, kam, cik);
   karo.append(y);
 }
 
@@ -1843,7 +1859,7 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
                   altyazi: false, altyazilar: new Map(), dokum: [], tanima: null,
                   tahta: false, tahtaVuruslar: new Map(), tahtaKutu: null, tahtaTuval: null,
                   baslangic: ayar.baslangic || Date.now(), anaKanal: ayar.ana || null, anaCh: null, kaynakKanal: ayar.kaynak || null, altOda: ayar.altOda || null, altOdalar: ayar.altOdalar || null,
-                  kilit: false, izinler: { sohbet: true, ekran: true, tepki: true }, elSirasi: new Map(), sohbetKaydi: [],
+                  kilit: false, izinler: { sohbet: true, ekran: 'izin', tepki: true }, ekranIzinli: new Set(), ekranIstekleri: new Map(), elSirasi: new Map(), sohbetKaydi: [],
                   anketler: new Map(), sorular: new Map(), aktarilan: new Set(), sfu: null, sfuDenendi: false, duzen: localStorage.getItem('ekip_duzen') || 'oto', ceviri: '',
                   katilim: ayar.katilim || new Map([[durum.ben.id, { ad: durum.ben.ad, erp: !durum.ben.konuk, giris: new Date().toISOString(), cikis: null }]]) };
   const c = durum.cagri;
@@ -1877,6 +1893,8 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
     if (payload.kime !== durum.ben.id || !Array.isArray(payload.vuruslar)) return;
     payload.vuruslar.forEach((v) => { if (!durum.cagri.tahtaVuruslar.has(v.id)) tahtaVurusAl({ v: v.id, r: v.r, k: v.k, p: v.p, s: v.s, t: v.t }); });
   });
+  icerik('ekran-iste', ekranIstegiAl);
+  icerik('ekran-cevap', ekranCevabiAl);
   icerik('tahta-sil', (payload) => { if (durum.cagri.tahtaVuruslar.delete(payload.v)) tahtaTumunuCiz(); });
   icerik('altyazi', (payload) => altyaziAl(payload));
   icerik('altyazi-durum', (payload) => altyaziAcKapa(!!payload.acik, false));
@@ -1891,7 +1909,8 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
   $('ozetDugme').hidden = $('ceviriSatiri').hidden = !c.erp || YEREL; // Claude yalnız ERP oturumuyla
   if (c.erp && !YEREL) gSohbetEkle({ ad: '📝 ', metin: 'Altyazı (CC) açık olursa görüşme bitince toplantı notu (özet, kararlar, aksiyonlar) kanala kendiliğinden düşer.' }, true);
   $('secCeviri').value = '';
-  ['izinSohbet', 'izinEkran', 'izinTepki'].forEach((id) => { $(id).checked = true; });
+  ['izinSohbet', 'izinTepki'].forEach((id) => { $(id).checked = true; });
+  $('izinEkran').value = 'izin';
   kilitDugmesi();
   $('secDuzen').value = c.duzen;
   $('secSure').value = '0';
@@ -1920,7 +1939,7 @@ const cagriDurumuYay = () => {
   const c = durum.cagri, mik = c.yerel.getAudioTracks()[0];
   c.ch.track({ ad: durum.ben.ad, katilma: c.katilma, bas: c.baslangic, el: c.el, erp: c.erp, kabuller: [...c.kabuller], cikarilanlar: [...c.cikarilanlar],
                kayit: !!c.kayit, altyazi: c.altyazi, tahta: c.tahta, mik: !!mik && mik.enabled, ekran: !!c.ekran, sfu: !!c.sfu,
-               kilit: c.kilit, izinler: c.izinler, sureDk: c.sureDk || 0, kam: !!c.yerel.getVideoTracks()[0]?.enabled,
+               kilit: c.kilit, izinler: c.izinler, ekranIzinli: [...c.ekranIzinli], sureDk: c.sureDk || 0, kam: !!c.yerel.getVideoTracks()[0]?.enabled,
                foto: localStorage.getItem('ekip_foto') || null });
   kamsizGuncelle();
 };
@@ -2705,7 +2724,7 @@ function ekranBitti() {
 async function ekranPaylas() {
   const c = durum.cagri;
   if (c.ekran) return ekranBitti();
-  if (!gonderebilir(durum.ben.id, 'ekran')) return;
+  if (!gonderebilir(durum.ben.id, 'ekran')) { if (ekranIzinModu()) ekranIzniIste(); return; }
   let akis;
   // audio:true → tarayıcı "sesi de paylaş" seçeneği sunar (sekme ya da tüm ekran sesi)
   try { akis = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }); }
@@ -2927,15 +2946,60 @@ async function onizlemeGoster(yerel) {
 const erpMi = (id) => (id === durum.ben.id ? durum.cagri.erp : !!durum.cagri.katilanlar.get(id)?.erp);
 const kilitli = () => durum.cagri.kilit || [...durum.cagri.katilanlar.values()].some((g) => g.erp && g.kilit);
 // Misafir izni: görüşmedeki sahiplerden biri kapattıysa kapalı; ERP kullanıcısı (sahip) her zaman serbest.
-const gonderebilir = (id, tur) => erpMi(id) || (durum.cagri.izinler[tur] !== false &&
-  [...durum.cagri.katilanlar.values()].every((g) => !g.erp || !g.izinler || g.izinler[tur] !== false));
+// Ekran paylaşımında üçüncü durum 'izin': misafir ister, sahiplerden biri izin verince (presence ekranIzinli) paylaşır.
+function gonderebilir(id, tur) {
+  if (erpMi(id)) return true;
+  const c = durum.cagri, sahipler = [...c.katilanlar.values()].filter((g) => g.erp);
+  const degerler = [c.erp ? c.izinler[tur] : undefined, ...sahipler.map((g) => g.izinler && g.izinler[tur])]; // yalnız sahiplerin ayarı sayılır
+  if (degerler.includes(false)) return false;
+  if (tur !== 'ekran' || !degerler.includes('izin')) return true;
+  return (c.erp && c.ekranIzinli.has(id)) || sahipler.some((g) => Array.isArray(g.ekranIzinli) && g.ekranIzinli.includes(id));
+}
+const ekranIzinModu = () => [durum.cagri.erp ? durum.cagri.izinler.ekran : undefined, ...[...durum.cagri.katilanlar.values()].filter((g) => g.erp).map((g) => g.izinler && g.izinler.ekran)].includes('izin');
+
+// Misafir: izin ister. Sahip: isteği bekleyenler şeridinde görür, verir ya da reddeder; izni kişiler listesinden geri alır.
+function ekranIzniIste() {
+  const c = durum.cagri;
+  if (c.ekranIstendi && Date.now() - c.ekranIstendi < 30000) { $('uyari').textContent = 'İzin isteğin toplantı sahibinde, yanıt bekleniyor.'; return; }
+  c.ekranIstendi = Date.now();
+  c.ch.send({ type: 'broadcast', event: 'ekran-iste', payload: { kimden: durum.ben.id, ad: durum.ben.ad } });
+  $('uyari').textContent = '🖥️ Ekran paylaşımı için izin istendi. Toplantı sahibi onaylayınca Ekran düğmesiyle paylaşabilirsin.';
+  gSohbetEkle({ ad: '🖥️ ', metin: 'Ekran paylaşımı için toplantı sahibinden izin istedin.' }, true);
+}
+function ekranIstegiAl(p) {
+  const c = durum.cagri;
+  if (!c.erp || typeof p.kimden !== 'string' || !c.katilanlar.has(p.kimden) || gonderebilir(p.kimden, 'ekran')) return;
+  c.ekranIstekleri.set(p.kimden, String(p.ad || 'Katılımcı').slice(0, 60));
+  bildir('Ekran paylaşımı', `${p.ad} ekranını paylaşmak istiyor`, durum.aktif, true);
+  panelUyarisi('kisiler');
+  bekleyenleriCiz(); kisileriCizCagri();
+}
+function ekranIzni(id, ver) {
+  const c = durum.cagri;
+  c.ekranIstekleri.delete(id);
+  if (ver) c.ekranIzinli.add(id); else c.ekranIzinli.delete(id);
+  cagriDurumuYay();
+  c.ch.send({ type: 'broadcast', event: 'ekran-cevap', payload: { kime: id, izin: ver, ad: durum.ben.ad, kimden: durum.ben.id } });
+  bekleyenleriCiz(); kisileriCizCagri();
+}
+function ekranCevabiAl(p) {
+  const c = durum.cagri, sahip = c.katilanlar.get(p.kimden);
+  if (p.kime !== durum.ben.id || !sahip || !sahip.erp) return;
+  c.ekranIstendi = 0;
+  const metin = p.izin ? `${p.ad} ekran paylaşımına izin verdi. Ekran düğmesine basıp paylaşabilirsin.` : `${p.ad} ekran paylaşım iznini vermedi.`;
+  $('uyari').textContent = metin;
+  gSohbetEkle({ ad: '🖥️ ', metin }, true); panelUyarisi('sohbet');
+}
 
 function izinleriUygula() {
   const c = durum.cagri, [sohbet, ekran, tepki] = ['sohbet', 'ekran', 'tepki'].map((t) => gonderebilir(durum.ben.id, t));
   $('gSohbetMetin').disabled = !sohbet;
   $('gSohbetMetin').placeholder = sohbet ? 'Görüşmeye yaz…' : 'Toplantı sahibi sohbeti kapattı';
   if (!ekran && c.ekran) ekranBitti();
-  $('ekranDugme').disabled = !ekran;
+  const isteyebilir = !ekran && ekranIzinModu();
+  $('ekranDugme').disabled = !ekran && !isteyebilir;
+  $('ekranDugme').title = ekran ? 'Ekranı paylaş. \'Sesi de paylaş\' seçilirse bilgisayar sesi de gider'
+    : isteyebilir ? 'Ekranı paylaşmak için toplantı sahibinden izin iste' : 'Toplantı sahibi ekran paylaşımını kapattı';
   $('tepkiler').querySelectorAll('button').forEach((b) => { b.disabled = !tepki; });
   $('tepkiDugme').disabled = !tepki;
 }
@@ -2952,6 +3016,14 @@ function kisileriCizCagri() {
   const liste = [[durum.ben.id, { ad: durum.ben.ad + ' (sen)', erp: c.erp, mik: !!mik && mik.enabled }], ...[...c.katilanlar].filter(([id, g]) => izinli(id, g))];
   $('panelSekmeleri').querySelector('[data-bolum="kisiler"]').textContent = `Kişiler ${liste.length}`;
   const ust = [];
+  if (c.ekranIstekleri.size) {
+    ust.push(el('div', 'kisi-baslik', `Ekran paylaşmak isteyenler (${c.ekranIstekleri.size})`), ...[...c.ekranIstekleri].map(([id, ad]) => {
+      const s = el('div', 'kisi bekliyor'), ver = el('button', 'ana', 'İzin ver'), red = el('button', null, 'Reddet');
+      ver.onclick = () => ekranIzni(id, true); red.onclick = () => ekranIzni(id, false);
+      s.append(avatar(ad), el('span', 'ad', ad), ver, red);
+      return s;
+    }));
+  }
   if (bekleyenler.length) {
     const baslik = el('div', 'kisi-baslik', `Katılmak isteyenler (${bekleyenler.length})`);
     if (bekleyenler.length > 1) { const hepsi = el('button', 'ana', 'Hepsini al'); hepsi.onclick = () => iceriAl(...bekleyenler.map(([id]) => id)); baslik.append(hepsi); }
@@ -2967,6 +3039,8 @@ function kisileriCizCagri() {
     if (c.erp && id !== durum.ben.id) {
       const dugme = (yazi, baslik, fn) => { const b = el('button', null, yazi); b.title = baslik; b.setAttribute('aria-label', baslik); b.onclick = fn; s.append(b); };
       if (g.mik !== false) dugme('🔇', 'Mikrofonunu kapat', () => komutGonder('sustur', id));
+      if (g.kam !== false) dugme('📷✕', 'Kamerasını kapat', () => komutGonder('kamera-kapat', id));
+      if (!g.erp && c.ekranIzinli.has(id)) dugme('🖥️✕', 'Ekran paylaşım iznini geri al', () => ekranIzni(id, false));
       if (sira) dugme('✋↓', 'Elini indir', () => komutGonder('el-indir', id));
       dugme('⛔', 'Görüşmeden çıkar', () => disariCikar(id));
     }
@@ -3532,7 +3606,8 @@ function cagriDugmeleriniBagla() {
   $('secCeviri').onchange = (e) => { durum.cagri.ceviri = e.target.value; };
   $('elleriIndir').onclick = () => { komutGonder('el-indir', '*'); if (durum.cagri.el) elKaldir(); };
   $('kilitDugme').onclick = () => { const c = durum.cagri; c.kilit = !c.kilit; kilitDugmesi(); cagriDurumuYay(); bekleyenleriCiz(); };
-  for (const [id, tur] of [['izinSohbet', 'sohbet'], ['izinEkran', 'ekran'], ['izinTepki', 'tepki']]) {
+  $('izinEkran').onchange = (e) => { durum.cagri.izinler.ekran = { evet: true, hayir: false }[e.target.value] ?? 'izin'; cagriDurumuYay(); izinleriUygula(); };
+  for (const [id, tur] of [['izinSohbet', 'sohbet'], ['izinTepki', 'tepki']]) {
     $(id).onchange = (e) => { durum.cagri.izinler[tur] = e.target.checked; cagriDurumuYay(); };
   }
   $('odaAc').onclick = altOdalariAc;
