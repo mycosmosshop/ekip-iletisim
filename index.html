@@ -174,6 +174,7 @@
   .karo video { width: 100%; height: 100%; object-fit: cover; display: block; }
   .karo.ben video { transform: scaleX(-1); }
   .karo.ekran video { transform: none; object-fit: contain; }
+  .karo video:picture-in-picture { transform: none; } /* tarayıcının "resim içinde resim" yazısı ayna gibi ters çıkmasın */
   .karo span.ad { position: absolute; left: 10px; bottom: 8px; max-width: calc(100% - 20px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
                   color: #fff; background: rgb(8 20 24 / .62); padding: 3px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600; backdrop-filter: blur(6px); }
   .karo.buyuk { grid-column: 1 / -1; }
@@ -199,6 +200,14 @@
   #sahne[data-duzen="kenar"] .karo.ana-karo { grid-row: span 4; }
   #sahne[data-duzen="kenar"] .karo:not(.ana-karo) { grid-column: 2; }
   #sahne.kendimi-gizle .karo.ben { display: none; }
+  /* Tahta açıkken: tahta solda büyük, katılımcılar sağda küçük resimler halinde alt alta */
+  #gorusme:has(#sahne[data-duzen="tahta"]) { max-height: 78vh; }
+  #sahne[data-duzen="tahta"] { grid-template-columns: minmax(0, 1fr) 190px; grid-auto-flow: row dense; align-items: start; }
+  #sahne[data-duzen="tahta"] .tahta { grid-column: 1; grid-row: 1 / span 20; }
+  #sahne[data-duzen="tahta"] .tahta canvas { width: min(100%, calc((78vh - 110px) * 16 / 9)); margin: 0 auto; }
+  #sahne[data-duzen="tahta"] .karo { grid-column: 2; border-radius: 10px; }
+  #sahne[data-duzen="tahta"] .karo span.ad { font-size: 11.5px; padding: 2px 8px; left: 6px; bottom: 6px; }
+  #sahne[data-duzen="tahta"] .bekleme-kart { display: none; } /* davet başlıktaki "Davet et" ile */
   .tahta { grid-column: 1 / -1; background: #fff; border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
   .tahta canvas { width: 100%; aspect-ratio: 16 / 9; touch-action: none; cursor: crosshair; display: block; }
   .tahta-arac { display: flex; gap: 6px; padding: 6px; background: #eef2ef; flex-wrap: wrap; align-items: center; }
@@ -1758,6 +1767,7 @@ async function cagridanAyril(gecis) {
   $('sahne').replaceChildren(); delete $('sahne').dataset.duzen;
   $('gorusme').classList.remove('acik'); $('cagriCubugu').classList.remove('acik');
   otoPip(false); $('ekranSeridi').hidden = true;
+  if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
   $('ekranDugme').setAttribute('aria-pressed', 'false');
   $('elDugme').setAttribute('aria-pressed', 'false'); $('elDugme').title = 'El kaldır';
   $('gSohbetDugme').setAttribute('aria-pressed', 'false'); $('panelRozet').hidden = true;
@@ -2003,6 +2013,7 @@ function tahtaAcKapa(acik, yay) {
   c.tahta = acik;
   $('tahtaDugme').setAttribute('aria-pressed', String(acik));
   if (acik) tahtaKur(); else { c.tahtaKutu?.remove(); c.tahtaKutu = null; }
+  duzenUygula();
   if (yay) c.ch.send({ type: 'broadcast', event: 'tahta-durum', payload: { acik } });
   else if (acik) c.ch.send({ type: 'broadcast', event: 'tahta-iste', payload: { kimden: durum.ben.id } });
   cagriDurumuYay();
@@ -2746,7 +2757,7 @@ function sureyiYaz() {
 const ekranciAl = (c) => c.ekran ? durum.ben.id : [...c.katilanlar].find(([id, g]) => g.ekran && c.esler.has(id))?.[0];
 function duzenUygula() {
   const c = durum.cagri, sahne = $('sahne'), ekranci = ekranciAl(c);
-  const duzen = c.duzen === 'oto' ? (ekranci ? 'kenar' : 'doseme') : c.duzen;
+  const duzen = c.tahta ? 'tahta' : c.duzen === 'oto' ? (ekranci ? 'kenar' : 'doseme') : c.duzen;
   if (sahne.dataset.duzen !== duzen) sahne.dataset.duzen = duzen;
   if (duzen === 'doseme') return;
   let enSon = Date.now() - 3000;
@@ -2762,17 +2773,22 @@ function duzenUygula() {
 const PIP_OGELER = ['altOdaBilgi', 'gorusme', 'altyazi', 'cagriCubugu'];
 const videolariOynat = (belge) => belge.querySelectorAll('video').forEach((v) => v.play().catch(() => {}));
 // dar: ekran paylaşırken yanda duran ince pencere (Teams'teki gibi); düzeni pencere genişliğine bakan CSS kurar.
-async function pipAc(dar) {
+// oto: sekmeden çıkınca tarayıcının açtığı pencere; o yoldan yalnız kendi görüntümüz küçük pencereye alınmaz.
+async function pipAc(dar, oto) {
   if ($('dahaMenu').matches(':popover-open')) $('dahaMenu').hidePopover();
   if (pipPencere) return pipKapat();
   const tekGoruntu = () => {
-    const v = $('sahne').querySelector('.karo.ana-karo video, .karo:not(.ben) video, .karo video');
-    return v && v.requestPictureInPicture().catch(() => {});
+    const v = $('sahne').querySelector('.karo.ana-karo:not(.ben) video, .karo:not(.ben) video') || (!oto && $('sahne').querySelector('.karo video'));
+    if (!v) return;
+    // Küçük pencere kapanınca Chrome videoyu duraklatıp karoda siyah bırakabiliyor: yeniden oynat.
+    v.addEventListener('leavepictureinpicture', () => v.play().catch(() => {}), { once: true });
+    if (oto) pipOtoVideo = v;
+    return v.requestPictureInPicture().catch(() => {});
   };
   if (!window.documentPictureInPicture) return dar ? false : tekGoruntu();
   let w;
   try { w = await documentPictureInPicture.requestWindow(dar ? { width: 320, height: 640 } : { width: 520, height: 420 }); }
-  catch (e) { return dar ? false : tekGoruntu(); } // gömülü tarayıcılar ayrı pencereye izin vermeyebilir
+  catch (e) { console.warn('Görüşme penceresi açılamadı:', e); return dar ? false : tekGoruntu(); } // gömülü tarayıcılar ayrı pencereye izin vermeyebilir
   w.document.head.append(Object.assign(w.document.createElement('style'), { textContent: document.querySelector('style').textContent }));
   w.document.body.className = 'pip';
   pipYeri = document.createComment('pip');
@@ -2786,8 +2802,17 @@ async function pipAc(dar) {
 }
 // Chrome 120+: görüşmedeyken başka sekmeye geçilince küçük pencere tıklamasız açılır (ekran paylaşılıyorsa dar),
 // sekmeye dönünce tarayıcı kapatır. Kullanıcı tarayıcının otomatik resim içinde resim ayarıyla kapatabilir.
+// Sekmeye dönülünce, sekmeden çıkarken kendiliğinden açılan tek video penceresi kapanır (Chrome bunu her zaman yapmıyor).
+let pipOtoVideo = null;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !pipOtoVideo) return;
+  if (document.pictureInPictureElement === pipOtoVideo) document.exitPictureInPicture().catch(() => {});
+  pipOtoVideo.play().catch(() => {});
+  pipOtoVideo = null;
+});
+
 function otoPip(acik) {
-  const ac = () => { if (durum.cagri && !pipPencere) pipAc(!!durum.cagri.ekran); };
+  const ac = () => { if (durum.cagri && !pipPencere) pipAc(!!durum.cagri.ekran, true); };
   try { navigator.mediaSession.setActionHandler('enterpictureinpicture', acik ? ac : null); } catch (e) { /* desteklenmiyor */ }
 }
 
