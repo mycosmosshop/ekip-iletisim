@@ -461,6 +461,7 @@
         <button data-emoji="👍" aria-label="Beğendim">👍</button><button data-emoji="❤️" aria-label="Kalp">❤️</button><button data-emoji="😂" aria-label="Gülüyorum">😂</button><button data-emoji="👏" aria-label="Alkış">👏</button><button data-emoji="🎉" aria-label="Kutlama">🎉</button>
       </div>
       <div id="dahaMenu" popover>
+        <button id="arkaDugme" title="Bulanıklaştır, fotoğraf ya da kendi resmini seç; görüşme sürerken değişir"><i data-lucide="image"></i>Arka planı değiştir</button>
         <button id="tahtaDugme" aria-pressed="false" title="Herkesin birlikte çizebildiği beyaz tahta"><i data-lucide="pen-tool"></i>Beyaz tahta</button>
         <button id="kayitDugme" hidden aria-pressed="false" title="Kayıt Drive'a yüklenir ve sohbete bağlantısı düşer"><i data-lucide="circle-dot"></i><span class="etiket">Kaydet</span></button>
         <button id="dokumDugme" hidden title="Görüşme dökümünü kaydet"><i data-lucide="file-text"></i>Dökümü kaydet</button>
@@ -3211,6 +3212,11 @@ function cagriDugmeleriniBagla() {
     const m = { kimden: durum.ben.id, ad: durum.ben.ad, metin };
     durum.cagri.ch.send({ type: 'broadcast', event: 'gsohbet', payload: m });
     gSohbetEkle(m);
+  };
+  $('arkaDugme').onclick = async () => {
+    $('dahaMenu').hidePopover();
+    $('cihazPanel').hidden = false; await cihazlariDoldur();
+    $('secArka').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
   $('cihazDugme').onclick = async () => { $('cihazPanel').hidden = !$('cihazPanel').hidden; if (!$('cihazPanel').hidden) await cihazlariDoldur(); };
   $('secMik').onchange = (e) => cihazDegistir('mik', e.target.value);
