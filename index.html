@@ -1244,7 +1244,7 @@ function mesajlariCiz() {
   const alttaydi = kok.scrollHeight - kok.scrollTop - kok.clientHeight < 60, eski = kok.scrollTop;
   kok.replaceChildren();
   if (durum.arama) return aramaCiz(kok);
-  const liste = durum.mesajlar.get(durum.aktif) || [];
+  const liste = (durum.mesajlar.get(durum.aktif) || []).filter((m) => !m.silindi); // silinen mesaj hiç gösterilmez
   if (!liste.length) kok.append(el('div', 'bos', 'Henüz mesaj yok. İlk mesajı sen yaz.'));
   const benimSon = [...liste].reverse().find((m) => m.yazar_id === durum.ben.id && !m.silindi);
   let onceki = null;
