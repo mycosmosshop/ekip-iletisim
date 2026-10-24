@@ -88,6 +88,13 @@
   #ben > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #ben .avatar { width: 34px; height: 34px; }
   .avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+  #epostaPenceresi { border: 0; border-radius: 18px; background: var(--panel); color: var(--yazi); padding: 22px; width: min(720px, 94vw); max-height: 94vh; overflow: auto; box-shadow: var(--golge); }
+  #epostaPenceresi::backdrop { background: rgb(8 20 24 / .6); }
+  #epostaPenceresi form { display: grid; gap: 12px; }
+  #epostaPenceresi strong { font: 700 20px/1.2 var(--yazi-baslik); }
+  #epostaPenceresi label.alan { display: grid; gap: 4px; color: var(--soluk); font-size: 14px; }
+  #epostaPenceresi textarea { font: 14px/1.5 var(--yazi-govde); resize: vertical; padding: 10px; border: 1px solid var(--kenar); border-radius: 10px; color: var(--yazi); }
+  #epostaKanalSatiri { display: flex; gap: 8px; align-items: center; font-size: 14px; }
   #ayarlar { border: 0; border-radius: 18px; background: var(--panel); color: var(--yazi); padding: 22px; width: min(560px, 94vw); max-height: 92vh; overflow: auto; box-shadow: var(--golge); }
   #ayarlar::backdrop { background: rgb(8 20 24 / .6); }
   #ayarlar form { display: grid; gap: 14px; }
@@ -122,9 +129,14 @@
   .mesaj .araclar button:hover { background: var(--vurgu-acik); }
   .alinti { border-left: 3px solid var(--kenar); padding: 1px 10px; margin: 2px 0 4px; color: var(--soluk); font-size: 13px; cursor: pointer; }
   .mesaj .silindi { font-style: italic; color: var(--soluk); }
+  .mesaj .eposta-dugme { margin-top: 8px; padding: 5px 12px; font-size: 13px; }
   .mesaj .duzenlendi { font-size: 11.5px; color: var(--soluk); margin-left: 6px; }
   .mesaj .satir-form { display: flex; gap: 6px; margin-top: 4px; align-items: center; }
   .mesaj .satir-form input { flex: 1; min-width: 0; }
+  .mesaj .satir-form.duzenle { display: grid; gap: 6px; max-width: 900px; }
+  .mesaj .satir-form.duzenle textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 8px 10px; font: inherit; line-height: 1.5;
+                                        border: 1px solid var(--vurgu); border-radius: 10px; background: var(--panel); color: var(--yazi); }
+  .mesaj .satir-form.duzenle small { color: var(--soluk); font-size: 12px; }
   .tepkiler { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
   .tepkiler button { padding: 1px 9px; font-size: 13px; background: var(--zemin); }
   .tepkiler button.benim { border-color: var(--vurgu); background: var(--vurgu-acik); }
@@ -553,6 +565,17 @@
     </div>
     <div id="kanalHata" class="hata" hidden></div>
     <div class="satir2"><button value="tamam" class="ana" id="kanalTamam">Kanalı oluştur</button><button value="vazgec" formnovalidate>Vazgeç</button><button type="button" id="kanaldanAyril" hidden>Kanaldan ayrıl</button></div>
+  </form>
+</dialog>
+
+<dialog id="epostaPenceresi">
+  <form method="dialog">
+    <strong>Toplantı notunu e-postayla gönder</strong>
+    <label class="alan">Alıcılar (virgülle; boş bırakıp Outlook'ta da ekleyebilirsin) <input id="epostaAlici" type="text" inputmode="email" autocomplete="off" placeholder="ad.soyad@sanifoam.com.tr, …"></label>
+    <label class="alan">Konu <input id="epostaKonu" maxlength="200"></label>
+    <label class="alan">Not (göndermeden önce düzeltebilirsin) <textarea id="epostaMetin" rows="16"></textarea></label>
+    <label id="epostaKanalSatiri"><input type="checkbox" id="epostaKanal"> Düzeltmeyi kanaldaki nota da uygula</label>
+    <div class="satir2"><button value="ac" class="ana">📧 Outlook'ta aç</button><button value="vazgec">Vazgeç</button></div>
   </form>
 </dialog>
 
@@ -1231,6 +1254,42 @@ function mesajlariCiz() {
 }
 
 // Aynı kişinin 5 dakika içindeki ardışık mesajları tek grupta: avatar ve ad yalnız ilkinde.
+// Toplantı notunu varsayılan e-posta programında (Outlook) yeni e-posta olarak açar. mailto adresi Windows'ta
+// ~2000 karakterde kesilir: uzun notta tam metin panoya kopyalanır, e-postaya Ctrl+V ile yapıştırılır.
+// Önce düzeltme penceresi: konu, alıcılar, metin düzenlenir; istenirse kanaldaki not da düzeltilir.
+function notuEpostayla(m) {
+  const d = $('epostaPenceresi'), ilk = m.metin.split('\n')[0].replace(/^\S+\s/u, ''); // "📝 " gibi simge düşer
+  $('epostaKonu').value = `${ilk} · ${kanalBasligi(m.kanal)}`;
+  $('epostaMetin').value = m.metin;
+  $('epostaKanalSatiri').hidden = m.yazar_id !== durum.ben.id; // yalnız kendi notunu kanalda düzeltebilirsin
+  $('epostaKanal').checked = false;
+  d.querySelector('form').onsubmit = async (e) => {
+    if (!e.submitter || e.submitter.value !== 'ac') return; // Vazgeç
+    e.preventDefault();
+    const metin = $('epostaMetin').value.trim();
+    if (!metin) return;
+    if ($('epostaKanal').checked && metin !== m.metin) await mesajDegistir(m, { metin: metin.slice(0, 4000) });
+    d.close();
+    await epostaAc($('epostaAlici').value.trim(), $('epostaKonu').value.trim(), metin);
+  };
+  d.showModal();
+  $('epostaAlici').focus();
+}
+
+async function epostaAc(alici, konu, metin) {
+  const govde = metin.replace(/\r?\n/g, '\r\n') + '\r\n\r\n— Ekip İletişim';
+  const bas = `mailto:${encodeURIComponent(alici).replace(/%2C|%3B/gi, ',').replace(/%40/g, '@')}?subject=${encodeURIComponent(konu)}&body=`;
+  let adres = bas + encodeURIComponent(govde);
+  if (adres.length > 1900) {
+    let kopyalandi = false;
+    try { await navigator.clipboard.writeText(govde); kopyalandi = true; } catch (e) { /* izin yoksa */ }
+    adres = bas + encodeURIComponent(kopyalandi ? 'Toplantı notu panoya kopyalandı: buraya tıklayıp Ctrl+V ile yapıştır.\r\n\r\n'
+      : govde.slice(0, 500) + '\r\n…');
+    $('uyari').textContent = kopyalandi ? '📋 Not uzun olduğu için panoya kopyalandı; açılan e-postaya Ctrl+V ile yapıştır.' : '';
+  }
+  location.href = adres;
+}
+
 function mesajCiz(m, benimSon, onceki) {
   const benim = m.yazar_id === durum.ben.id;
   const devam = !!onceki && onceki.yazar_id === m.yazar_id && !m.yanit && !m.toplanti && zaman(m.olusma) - zaman(onceki.olusma) < 300000;
@@ -1255,6 +1314,12 @@ function mesajCiz(m, benimSon, onceki) {
   } else if (m.toplanti) d.append(toplantiKarti(m.toplanti));
   else if (m.dosya && /^https:\/\/drive\.google\.com\//.test(m.dosya.url)) d.append(dosyaOgesi(m.dosya));
   else d.append(metniCiz(m.metin));
+  if (!m.silindi && /^(📝 Toplantı notu|✨ Toplantı özeti)/u.test(m.metin || '')) {
+    const b = el('button', 'eposta-dugme', '📧 E-posta ile gönder');
+    b.title = 'Outlook\'ta (varsayılan e-posta programında) yeni e-posta açar; alıcıları sen eklersin';
+    b.onclick = () => notuEpostayla(m);
+    d.append(b);
+  }
   if (durum.silinecek === m.id) {
     const onay = el('div', 'satir-form'), evet = el('button', 'tehlike', 'Sil'), hayir = el('button', null, 'Vazgeç');
     evet.onclick = () => { durum.silinecek = null; mesajDegistir(m, { silindi: true }); };
@@ -1304,14 +1369,22 @@ function mesajAraclari(m, benim) {
   return a;
 }
 
+// Çok satırlı düzenleme (toplantı notu gibi): Enter kaydeder, Shift+Enter yeni satır, Esc vazgeçer. Satır sayısına göre uzar.
 function satirFormu(deger, etiket, bitti) {
-  const f = el('form', 'satir-form'), g = el('input'), k = el('button', 'ana', etiket), v = el('button', null, 'Vazgeç');
+  const f = el('form', 'satir-form duzenle'), g = el('textarea'), k = el('button', 'ana', etiket), v = el('button', null, 'Vazgeç');
   g.value = deger; g.maxLength = 4000; v.type = 'button';
+  const boyutla = () => { g.style.height = 'auto'; g.style.height = Math.min(g.scrollHeight + 2, innerHeight * 0.6) + 'px'; };
   f.onsubmit = (e) => { e.preventDefault(); bitti(g.value.trim()); };
   v.onclick = () => bitti(null);
-  g.onkeydown = (e) => { if (e.key === 'Escape') bitti(null); };
-  f.append(g, k, v);
-  setTimeout(() => g.focus(), 0);
+  g.oninput = boyutla;
+  g.onkeydown = (e) => {
+    if (e.key === 'Escape') bitti(null);
+    else if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); f.requestSubmit(); }
+  };
+  const ipucu = el('small', null, 'Enter kaydeder · Shift+Enter yeni satır · Esc vazgeçer');
+  f.append(g, el('div', 'satir2', null), ipucu);
+  f.querySelector('.satir2').append(k, v);
+  setTimeout(() => { g.focus(); g.setSelectionRange(g.value.length, g.value.length); boyutla(); }, 0);
   return f;
 }
 
