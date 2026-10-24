@@ -5,8 +5,8 @@
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#16181d",
-  "theme_color": "#4f52b2",
+  "background_color": "#11303a",
+  "theme_color": "#11303a",
   "lang": "tr",
   "icons": [
     { "src": "simge.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },

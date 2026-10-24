@@ -7,9 +7,13 @@
 <link rel="icon" href="simge.svg" type="image/svg+xml">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="simge-192.png">
-<meta name="theme-color" content="#4f52b2">
+<meta name="theme-color" content="#11303a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..700&family=Figtree:wght@400..700&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/lucide@1.52.0/dist/umd/lucide.min.js"></script>
 <script>
   // Yerelde (localhost) ERP girişi aranmaz, ad sorulur; yayında erp-guard onaylı ERP oturumu ister.
   window.EKIP_YEREL = ['localhost', '127.0.0.1'].includes(location.hostname);
@@ -19,174 +23,168 @@
 </script>
 <script src="https://mycosmosshop.github.io/erp-portal/erp-guard.js"></script>
 <style>
+  /* Renkler bir sünger üreticisinin malzemesinden: mürekkep petrol, sünger sarısı, ovma teli yeşili, serin kâğıt. */
   :root {
-    --zemin: #f4f5f7; --panel: #ffffff; --kenar: #dfe2e7; --yazi: #1d2129; --soluk: #6b7280;
-    --vurgu: #4f52b2; --vurgu-acik: #e8e8f7; --yesil: #1f9d55; --kirmizi: #c62828; --video: #111318;
+    --zemin: #eef2ef; --panel: #ffffff; --kenar: #d9e1dd; --yazi: #14262c; --soluk: #5b6b70;
+    --vurgu: #1e6b52; --vurgu-koyu: #175641; --vurgu-acik: #e1efe8; --ana-yazi: #ffffff;
+    --sari: #f2be2e; --sari-acik: #fff3cc; --kirmizi: #c2412d;
+    --murekkep: #11303a; --murekkep-2: #1b4350; --murekkep-yazi: #d6e4e2; --murekkep-soluk: #8fa9ab;
+    --sahne: #0d2027; --sahne-2: #1d3a43; --video: #0a181d;
+    --golge: 0 18px 48px rgb(8 20 24 / .22);
+    --yazi-baslik: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+    --yazi-govde: "Figtree", "Segoe UI", system-ui, sans-serif;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --zemin: #16181d; --panel: #1f2229; --kenar: #2e323b; --yazi: #e7e9ee; --soluk: #9aa1ad;
-            --vurgu: #8b8ef0; --vurgu-acik: #2b2d4a; --video: #0b0c0f; }
+    :root { --zemin: #0f1d22; --panel: #15272d; --kenar: #26393f; --yazi: #e3ece8; --soluk: #93a6a4;
+            --vurgu: #4fb08c; --vurgu-koyu: #5fc19c; --vurgu-acik: #173b33; --ana-yazi: #06231a; --sari-acik: #3a3216;
+            --murekkep: #0b181c; --murekkep-2: #16303a; --sahne: #081418; --sahne-2: #17323a; --video: #050e11; }
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
-  body { margin: 0; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; background: var(--zemin); color: var(--yazi); height: 100vh; }
-  button { font: inherit; cursor: pointer; border: 1px solid var(--kenar); background: var(--panel); color: var(--yazi); border-radius: 6px; padding: 6px 12px; }
-  button.ana { background: var(--vurgu); border-color: var(--vurgu); color: #fff; }
+  body { margin: 0; font: 15px/1.5 var(--yazi-govde); background: var(--zemin); color: var(--yazi); height: 100vh; -webkit-font-smoothing: antialiased; }
+  svg.lucide { width: 18px; height: 18px; flex: none; }
+  button { font: 500 14px/1.2 var(--yazi-govde); cursor: pointer; border: 1px solid var(--kenar); background: var(--panel); color: var(--yazi);
+           border-radius: 999px; padding: 7px 14px; display: inline-flex; align-items: center; gap: 7px; transition: background-color .15s, border-color .15s, color .15s; }
+  button:hover { border-color: var(--soluk); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.ana { background: var(--vurgu); border-color: var(--vurgu); color: var(--ana-yazi); font-weight: 600; }
+  button.ana:hover { background: var(--vurgu-koyu); border-color: var(--vurgu-koyu); }
   button.tehlike { background: var(--kirmizi); border-color: var(--kirmizi); color: #fff; }
-  button[aria-pressed="false"] { opacity: .55; }
-  input { font: inherit; padding: 8px 10px; border: 1px solid var(--kenar); border-radius: 6px; background: var(--panel); color: var(--yazi); }
-  #uygulama { display: grid; grid-template-columns: 250px 1fr; height: 100vh; }
-  #yan { background: var(--panel); border-right: 1px solid var(--kenar); display: flex; flex-direction: column; overflow: auto; }
-  #yan h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--soluk); margin: 16px 14px 6px; display: flex; justify-content: space-between; align-items: center; }
-  #yan h2 button { padding: 0 8px; font-size: 16px; line-height: 22px; }
-  .oge { display: flex; align-items: center; gap: 8px; padding: 6px 14px; cursor: pointer; border-radius: 6px; margin: 0 6px; }
-  .oge:hover { background: var(--zemin); }
-  .oge.secili { background: var(--vurgu-acik); font-weight: 600; }
-  .oge .sayac { margin-left: auto; background: var(--vurgu); color: #fff; border-radius: 10px; font-size: 11px; padding: 0 7px; }
-  .oge .cagri-isareti { margin-left: auto; color: var(--yesil); font-size: 12px; }
-  .nokta { width: 8px; height: 8px; border-radius: 50%; background: var(--yesil); flex: none; }
-  .nokta.mesgul { background: var(--kirmizi); }
-  .nokta.uzakta { background: #e0a100; }
-  .oge .not { margin-left: auto; color: var(--soluk); font-size: 11px; }
-  #durumSec { margin: 8px 14px 0; font: inherit; padding: 4px; border: 1px solid var(--kenar); border-radius: 6px; background: var(--panel); color: var(--yazi); }
-  #yaziyor { min-height: 18px; padding: 0 16px; font-size: 12px; color: var(--soluk); background: var(--panel); }
-  #oneriler { display: flex; gap: 6px; flex-wrap: wrap; padding: 6px 16px 0; background: var(--panel); }
-  #oneriler button { padding: 2px 10px; font-size: 13px; }
-  .mesaj.bahsetme { background: var(--vurgu-acik); border-left: 3px solid var(--vurgu); padding: 4px 8px; border-radius: 4px; }
-  .mesaj { position: relative; }
-  .mesaj .araclar { position: absolute; right: 0; top: -8px; display: none; gap: 2px; background: var(--panel); border: 1px solid var(--kenar); border-radius: 6px; padding: 2px; }
+  :is(button, input, select, textarea, a):focus-visible { outline: 2px solid var(--sari); outline-offset: 2px; }
+  input, select, textarea { font: 15px/1.4 var(--yazi-govde); padding: 9px 12px; border: 1px solid var(--kenar); border-radius: 10px; background: var(--panel); color: var(--yazi); }
+  .avatar { position: relative; flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+            font: 600 12px/1 var(--yazi-baslik); color: #fff; }
+  .avatar[data-durum]::after { content: ""; position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%;
+                                background: #3fbf7f; box-shadow: 0 0 0 2px var(--murekkep); }
+  .avatar[data-durum="mesgul"]::after { background: var(--kirmizi); }
+  .avatar[data-durum="uzakta"]::after { background: var(--sari); }
+
+  /* ---- yan menü ---- */
+  #uygulama { display: grid; grid-template-columns: 264px 1fr; height: 100vh; }
+  #yan { background: var(--murekkep); color: var(--murekkep-yazi); display: flex; flex-direction: column; overflow: auto; padding-bottom: 6px; }
+  #marka { display: flex; align-items: center; gap: 10px; padding: 18px 18px 8px; font: 700 23px/1 var(--yazi-baslik); letter-spacing: -.02em; color: #fff; }
+  #marka svg { width: 30px; height: 30px; flex: none; }
+  .arama-kutu { position: relative; margin: 10px 12px 0; }
+  .arama-kutu svg { position: absolute; left: 11px; top: 50%; translate: 0 -50%; color: var(--murekkep-soluk); pointer-events: none; }
+  #ara { width: 100%; padding-left: 36px; background: var(--murekkep-2); border-color: transparent; color: #fff; }
+  #ara::placeholder { color: var(--murekkep-soluk); }
+  #yan h2 { font: 600 13.5px/1 var(--yazi-baslik); color: var(--murekkep-soluk); margin: 22px 14px 6px 18px; display: flex; justify-content: space-between; align-items: center; }
+  #yan h2 button { padding: 0; width: 26px; height: 26px; justify-content: center; background: transparent; border-color: transparent; color: var(--murekkep-soluk); }
+  #yan h2 button:hover { background: var(--murekkep-2); color: #fff; }
+  .oge { display: flex; align-items: center; gap: 10px; padding: 7px 12px; cursor: pointer; border-radius: 8px; margin: 1px 8px; position: relative; color: var(--murekkep-yazi); }
+  .oge:hover { background: var(--murekkep-2); }
+  .oge.secili { background: var(--murekkep-2); color: #fff; font-weight: 600; }
+  .oge.secili::before { content: ""; position: absolute; left: -8px; top: 7px; bottom: 7px; width: 4px; border-radius: 0 4px 4px 0; background: var(--sari); }
+  .oge .sayac { margin-left: auto; background: var(--sari); color: var(--murekkep); border-radius: 10px; font-size: 12px; font-weight: 700; padding: 0 7px; }
+  .oge .cagri-isareti { margin-left: auto; color: var(--sari); font-size: 12px; font-weight: 600; }
+  .oge .not { margin-left: auto; color: var(--murekkep-soluk); font-size: 12px; }
+  #kisiListesi .oge { padding: 5px 12px; }
+  #bildirimDugme, #kurDugme { margin: 10px 12px 0; justify-content: center; background: transparent; color: var(--murekkep-yazi); border-color: var(--murekkep-2); }
+  #bildirimDugme:hover, #kurDugme:hover { background: var(--murekkep-2); }
+  #durumSec { margin: 14px 12px 0; padding: 7px 10px; background: var(--murekkep-2); color: var(--murekkep-yazi); border-color: transparent; }
+  #ben { margin-top: auto; padding: 14px 18px 8px; color: var(--murekkep-soluk); font-size: 13px; }
+
+  /* ---- başlık ve mesajlar ---- */
+  #orta { display: flex; flex-direction: column; min-width: 0; background: var(--zemin); }
+  #baslik { display: flex; align-items: center; gap: 8px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--kenar); }
+  #baslik h1 { font: 700 21px/1.2 var(--yazi-baslik); letter-spacing: -.015em; margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #cagriBilgi { color: var(--vurgu); font-size: 13px; font-weight: 600; }
+  #mesajlar { flex: 1; overflow: auto; padding: 14px 16px 18px; display: flex; flex-direction: column; }
+  .mesaj { position: relative; display: grid; grid-template-columns: 38px minmax(0, 1fr); column-gap: 12px; padding: 6px 10px; margin-top: 10px; border-radius: 12px; max-width: 80ch; }
+  .mesaj.devam { margin-top: 0; padding-top: 1px; }
+  .mesaj.devam > .ust { display: none; }
+  .mesaj > :not(.avatar):not(.araclar) { grid-column: 2; }
+  .mesaj > .avatar { grid-row: span 8; width: 38px; height: 38px; font-size: 14px; }
+  .mesaj:hover { background: var(--panel); }
+  .mesaj .ust { font-size: 12.5px; color: var(--soluk); }
+  .mesaj .ust b { font: 650 15px/1.3 var(--yazi-baslik); color: var(--yazi); margin-right: 8px; }
+  .mesaj .metin { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .mesaj.bahsetme { background: var(--sari-acik); box-shadow: inset 3px 0 0 var(--sari); }
+  .mesaj .araclar { position: absolute; right: 10px; top: -14px; display: none; gap: 1px; background: var(--panel); border: 1px solid var(--kenar);
+                    border-radius: 999px; padding: 2px 4px; box-shadow: 0 6px 18px rgb(17 48 58 / .14); z-index: 1; }
   .mesaj:hover .araclar, .mesaj:focus-within .araclar { display: flex; }
-  .mesaj .araclar button { padding: 2px 6px; border: 0; }
-  .alinti { border-left: 3px solid var(--kenar); padding: 1px 8px; margin: 2px 0; color: var(--soluk); font-size: 12px; cursor: pointer; }
+  .mesaj .araclar button { padding: 3px 7px; border: 0; background: transparent; font-size: 14px; }
+  .mesaj .araclar button:hover { background: var(--vurgu-acik); }
+  .alinti { border-left: 3px solid var(--kenar); padding: 1px 10px; margin: 2px 0 4px; color: var(--soluk); font-size: 13px; cursor: pointer; }
   .mesaj .silindi { font-style: italic; color: var(--soluk); }
-  .mesaj .duzenlendi { font-size: 11px; color: var(--soluk); margin-left: 6px; }
-  .mesaj .satir-form { display: flex; gap: 6px; margin-top: 2px; }
+  .mesaj .duzenlendi { font-size: 11.5px; color: var(--soluk); margin-left: 6px; }
+  .mesaj .satir-form { display: flex; gap: 6px; margin-top: 4px; align-items: center; }
   .mesaj .satir-form input { flex: 1; min-width: 0; }
-  .tepkiler { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
-  .tepkiler button { padding: 0 8px; font-size: 13px; border-radius: 12px; }
+  .tepkiler { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 5px; }
+  .tepkiler button { padding: 1px 9px; font-size: 13px; background: var(--zemin); }
   .tepkiler button.benim { border-color: var(--vurgu); background: var(--vurgu-acik); }
-  .gorenler { font-size: 11px; color: var(--soluk); margin-top: 2px; }
+  .gorenler { font-size: 11.5px; color: var(--soluk); margin-top: 2px; }
   .mesaj.vurgulu { animation: vurgula 2.4s ease-out; }
-  @keyframes vurgula { from { background: var(--vurgu-acik); } to { background: transparent; } }
-  #yanitSeridi { display: flex; gap: 8px; align-items: center; padding: 6px 16px 0; background: var(--panel); font-size: 12px; color: var(--soluk); }
-  #yanitSeridi span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #yanitSeridi button { padding: 0 8px; }
-  #ara { margin: 12px 14px 0; }
-  .arama-sonuc { cursor: pointer; padding: 6px 8px; border-radius: 6px; }
+  @keyframes vurgula { from { background: var(--sari-acik); } to { background: transparent; } }
+  .metin a { color: var(--vurgu); text-underline-offset: 2px; }
+  .metin .etiket { color: var(--vurgu); background: var(--vurgu-acik); border-radius: 6px; padding: 0 4px; font-weight: 600; }
+  mark { background: var(--sari-acik); color: inherit; border-radius: 3px; }
+  .mesaj a.dosya { display: inline-flex; gap: 8px; align-items: center; margin-top: 3px; padding: 8px 14px; border: 1px solid var(--kenar); border-radius: 12px;
+                   color: var(--yazi); text-decoration: none; background: var(--panel); font-weight: 500; }
+  .mesaj a.dosya:hover { border-color: var(--vurgu); }
+  .bos { color: var(--soluk); margin: auto; text-align: center; }
+  .arama-sonuc { cursor: pointer; padding: 8px 10px; border-radius: 10px; }
   .arama-sonuc:hover { background: var(--panel); }
-  .arama-sonuc .kanal { color: var(--vurgu); font-size: 12px; margin-right: 6px; }
-  mark { background: #ffe58a; color: inherit; }
-  .metin a { color: var(--vurgu); }
-  .metin .etiket { color: var(--vurgu); font-weight: 600; }
-  #ben { margin-top: auto; padding: 12px 14px; border-top: 1px solid var(--kenar); color: var(--soluk); font-size: 12px; }
-  #orta { display: flex; flex-direction: column; min-width: 0; }
-  #baslik { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--kenar); }
-  #baslik h1 { font-size: 16px; margin: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #cagriBilgi { color: var(--yesil); font-size: 13px; }
-  #gorusme { display: none; background: var(--video); max-height: 60vh; min-height: 0; }
+  .arama-sonuc .kanal { color: var(--vurgu); font-size: 12px; font-weight: 600; margin-right: 6px; }
+  .toplanti { border: 1px solid var(--kenar); border-radius: 14px; padding: 12px 14px; background: var(--panel); max-width: 520px; box-shadow: inset 4px 0 0 var(--vurgu); }
+  .toplanti strong { display: block; font: 650 16px/1.3 var(--yazi-baslik); }
+  .toplanti .zaman { color: var(--soluk); margin: 2px 0 8px; }
+  .toplanti .dugmeler { display: flex; gap: 6px; flex-wrap: wrap; }
+  .toplanti .dugmeler a { padding: 5px 12px; border: 1px solid var(--kenar); border-radius: 999px; text-decoration: none; color: var(--yazi); font-size: 13px; }
+  .toplanti .dugmeler a.ana { background: var(--vurgu); border-color: var(--vurgu); color: var(--ana-yazi); font-weight: 600; }
+
+  /* ---- yazma alanı ---- */
+  #oneriler { display: flex; gap: 6px; flex-wrap: wrap; padding: 4px 20px 0; }
+  #oneriler button { padding: 3px 11px; font-size: 13px; }
+  #yaziyor { min-height: 20px; padding: 0 24px; font-size: 12.5px; color: var(--soluk); }
+  #yanitSeridi { display: flex; gap: 8px; align-items: center; margin: 0 20px; padding: 6px 12px; background: var(--vurgu-acik); border-radius: 12px 12px 0 0; font-size: 13px; color: var(--soluk); }
+  #yanitSeridi span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #yanitSeridi button { padding: 0 8px; border: 0; background: transparent; }
+  #yazma { display: flex; gap: 6px; align-items: center; margin: 0 20px 6px; padding: 5px 5px 5px 6px; background: var(--panel); border: 1px solid var(--kenar); border-radius: 16px; }
+  #yazma:focus-within { border-color: var(--vurgu); }
+  #yazma #metin { flex: 1; min-width: 0; border: 0; padding: 9px 4px; background: transparent; }
+  #yazma #metin:focus-visible { outline: none; }
+  #dosyaDugme { border: 0; background: transparent; padding: 8px; color: var(--soluk); }
+  #dosyaDugme:hover { color: var(--vurgu); background: var(--vurgu-acik); }
+  #uyari { font-size: 12.5px; color: var(--soluk); padding: 0 24px 10px; }
+  #uyari:empty { padding-bottom: 6px; }
+
+  /* ---- başlık altı şeritler ---- */
+  #planPanel { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--kenar); font-size: 13px; }
+  #planPanel label { display: grid; gap: 3px; color: var(--soluk); }
+  #baglantiKutu { display: flex; gap: 8px; align-items: center; padding: 10px 20px; background: var(--vurgu-acik); font-size: 13.5px; }
+  #baglantiKutu input { flex: 1; min-width: 0; }
+  #beklemeMesaji { padding: 14px 20px; background: var(--sari-acik); font-size: 14.5px; }
+  #bekleyenler { display: flex; flex-direction: column; gap: 6px; padding: 8px 16px; background: var(--sahne-2); color: #fff; font-size: 13.5px; }
+  .bekleyen { display: flex; gap: 8px; align-items: center; }
+  .bekleyen span { flex: 1; }
+  .bekleyen button { padding: 4px 12px; }
+  #kayitSeridi { padding: 5px 16px; background: var(--kirmizi); color: #fff; font-size: 13px; font-weight: 600; }
+  #altOdaBilgi { display: flex; gap: 8px; align-items: center; padding: 6px 16px; background: var(--sahne-2); color: #fff; font-size: 13.5px; }
+  #altOdaBilgi span { flex: 1; }
+
+  /* ---- görüşme sahnesi ---- */
+  #gorusme { display: none; background: var(--sahne); max-height: 62vh; min-height: 0; }
   #gorusme.acik { display: flex; }
-  #sahne { flex: 1; display: grid; padding: 8px; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); align-content: start; overflow: auto; }
-  .karo { position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 16/9; }
+  #sahne { flex: 1; display: grid; padding: 12px; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-content: start; overflow: auto; }
+  .karo { position: relative; background: var(--video); border-radius: 14px; overflow: hidden; aspect-ratio: 16 / 9; cursor: pointer; }
   .karo video { width: 100%; height: 100%; object-fit: cover; display: block; }
   .karo.ben video { transform: scaleX(-1); }
   .karo.ekran video { transform: none; object-fit: contain; }
-  .karo span.ad { position: absolute; left: 8px; bottom: 6px; color: #fff; background: rgba(0,0,0,.55); padding: 1px 8px; border-radius: 4px; font-size: 12px; }
-  .karo { cursor: pointer; }
+  .karo span.ad { position: absolute; left: 10px; bottom: 8px; max-width: calc(100% - 20px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                  color: #fff; background: rgb(8 20 24 / .62); padding: 3px 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600; backdrop-filter: blur(6px); }
   .karo.buyuk { grid-column: 1 / -1; }
   .karo:fullscreen video { object-fit: contain; transform: none; }
-  .karo.konusuyor { outline: 3px solid var(--yesil); outline-offset: -3px; }
-  .karo .el { position: absolute; top: 6px; left: 8px; font-size: 24px; }
-  .karo .tepki { position: absolute; left: 50%; bottom: 18%; font-size: 44px; pointer-events: none; animation: ucus 2.2s ease-out forwards; }
+  /* Sahnenin tek parlak öğesi: konuşanın çevresinde sünger sarısı */
+  .karo.konusuyor { box-shadow: 0 0 0 3px var(--sari), 0 0 26px rgb(242 190 46 / .4); }
+  .karo .el { position: absolute; top: 8px; left: 8px; background: var(--sari); color: var(--murekkep); border-radius: 999px; padding: 2px 9px; font-size: 15px; font-weight: 700; }
+  .karo .tepki { position: absolute; left: 50%; bottom: 18%; font-size: 46px; pointer-events: none; animation: ucus 2.2s ease-out forwards; }
   @keyframes ucus { from { transform: translate(-50%, 0) scale(.6); opacity: 0; } 15% { transform: translate(-50%, -10%) scale(1.1); opacity: 1; } to { transform: translate(-50%, -150%); opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) { .karo .tepki { animation: none; } }
-  #bekleyenler { display: flex; flex-direction: column; gap: 4px; padding: 6px 12px; background: #2b2d4a; color: #fff; font-size: 13px; }
-  .bekleyen { display: flex; gap: 8px; align-items: center; }
-  .bekleyen span { flex: 1; }
-  .bekleyen button { padding: 2px 10px; }
-  .tahta { grid-column: 1 / -1; background: #fff; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
-  .tahta canvas { width: 100%; aspect-ratio: 16 / 9; touch-action: none; cursor: crosshair; display: block; }
-  .tahta-arac { display: flex; gap: 6px; padding: 6px; background: #eceff3; flex-wrap: wrap; align-items: center; }
-  .tahta-arac button { padding: 3px 9px; background: #fff; color: #1d2129; border-color: #c9ced6; }
-  .tahta-arac button.renk { width: 26px; height: 26px; border-radius: 50%; padding: 0; }
-  .tahta-arac button[aria-pressed="true"] { outline: 2px solid #4f52b2; outline-offset: 1px; }
-  #altyazi { background: var(--video); color: #fff; padding: 4px 16px 8px; font-size: 16px; line-height: 1.4; text-align: center; }
-  #altyazi .satir span { background: rgba(0,0,0,.6); display: inline-block; padding: 2px 10px; border-radius: 4px; margin: 2px 0; }
-  #altyazi b { color: #9fd3ff; margin-right: 6px; }
-  #kayitSeridi { padding: 4px 12px; background: #7a1010; color: #fff; font-size: 13px; }
-  #beklemeMesaji { padding: 12px 16px; background: var(--vurgu-acik); font-size: 14px; }
-  .karo .yonetim { position: absolute; top: 6px; right: 6px; display: none; gap: 4px; }
+  @media (prefers-reduced-motion: reduce) { .karo .tepki { animation: none; } button { transition: none; } }
+  .karo .yonetim { position: absolute; top: 8px; right: 8px; display: none; gap: 4px; }
   .karo:hover .yonetim, .karo:focus-within .yonetim { display: flex; }
-  .karo .yonetim button { padding: 2px 6px; font-size: 12px; }
-  #gSohbet { width: 280px; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--kenar); }
-  #gSohbetListe { flex: 1; overflow: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
-  #gSohbetListe .bilgi { color: var(--soluk); font-size: 12px; }
-  #gSohbetListe b { margin-right: 4px; }
-  #gSohbetForm { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--kenar); }
-  #gSohbetForm input { flex: 1; min-width: 0; }
-  #cagriCubugu { display: none; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 8px; background: var(--video); }
-  #cagriCubugu.acik { display: flex; }
-  #tepkiler { display: inline-flex; gap: 2px; }
-  #tepkiler button { padding: 4px 7px; }
-  #cihazPanel { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; padding: 0 8px 8px; background: var(--video); color: #fff; font-size: 13px; }
-  #cihazPanel select { font: inherit; max-width: 230px; margin-left: 4px; }
-  #mesajlar { flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-  .mesaj { max-width: 70ch; }
-  .mesaj .ust { font-size: 12px; color: var(--soluk); }
-  .mesaj .ust b { color: var(--yazi); margin-right: 6px; }
-  .mesaj .metin { white-space: pre-wrap; overflow-wrap: anywhere; }
-  .bos { color: var(--soluk); margin: auto; text-align: center; }
-  #yazma { display: flex; gap: 8px; padding: 12px 16px; background: var(--panel); border-top: 1px solid var(--kenar); }
-  #yazma input { flex: 1; }
-  #uyari { font-size: 12px; color: var(--soluk); padding: 0 16px 8px; background: var(--panel); }
-  #giris { position: fixed; inset: 0; display: grid; place-items: center; background: var(--zemin); }
-  #giris form { background: var(--panel); border: 1px solid var(--kenar); border-radius: 10px; padding: 24px; display: grid; gap: 12px; width: min(340px, 90vw); }
-  .mesaj a.dosya { display: inline-flex; gap: 6px; align-items: center; margin-top: 2px; padding: 6px 10px; border: 1px solid var(--kenar); border-radius: 6px; color: var(--vurgu); text-decoration: none; background: var(--panel); }
-  #planPanel { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; padding: 10px 16px; background: var(--vurgu-acik); font-size: 13px; }
-  #planPanel label { display: grid; gap: 2px; }
-  #planPanel select { font: inherit; padding: 7px; border: 1px solid var(--kenar); border-radius: 6px; background: var(--panel); color: var(--yazi); }
-  .toplanti { border: 1px solid var(--kenar); border-left: 4px solid var(--vurgu); border-radius: 8px; padding: 8px 12px; background: var(--panel); max-width: 520px; }
-  .toplanti strong { display: block; font-size: 15px; }
-  .toplanti .zaman { color: var(--soluk); margin: 2px 0 6px; }
-  .toplanti .dugmeler { display: flex; gap: 6px; flex-wrap: wrap; }
-  .toplanti .dugmeler a { padding: 4px 10px; border: 1px solid var(--kenar); border-radius: 6px; text-decoration: none; color: var(--yazi); font-size: 13px; }
-  .toplanti .dugmeler a.ana { background: var(--vurgu); border-color: var(--vurgu); color: #fff; }
-  #baglantiKutu { display: flex; gap: 8px; align-items: center; padding: 8px 16px; background: var(--vurgu-acik); font-size: 13px; }
-  #baglantiKutu input { flex: 1; min-width: 0; }
-  body.konuk #yan, body.konuk #mesajlar, body.konuk #yazma, body.konuk #uyari,
-  body.konuk #cagriDugme, body.konuk #baglantiDugme, body.konuk #planDugme { display: none; }
-  body.konuk #uygulama { grid-template-columns: 1fr; grid-template-rows: 1fr; }
-  body.konuk #gorusme { max-height: none; flex: 1; }
-  body.konuk #sahne { align-content: center; }
-  #sure { color: #cfd3dc; font-size: 13px; align-self: center; min-width: 44px; font-variant-numeric: tabular-nums; }
-  #dahaMenu { border: 1px solid var(--kenar); border-radius: 10px; padding: 10px; background: var(--panel); color: var(--yazi); width: min(340px, 92vw); max-height: 85vh; overflow: auto; }
-  #dahaMenu:popover-open { display: grid; gap: 6px; }
-  #dahaMenu label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
-  #dahaMenu select, #dahaMenu input[type="number"] { font: inherit; padding: 4px; }
-  #sahipMenu { display: grid; gap: 6px; border-top: 1px solid var(--kenar); padding-top: 8px; }
-  #sahipMenu > b { font-size: 12px; color: var(--soluk); }
-  #odaListesi { display: grid; gap: 4px; font-size: 13px; }
-  .satir2 { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-  #panelSekmeleri { display: flex; border-bottom: 1px solid var(--kenar); }
-  #panelSekmeleri button { flex: 1; border: 0; border-radius: 0; padding: 8px 2px; font-size: 12px; background: transparent; }
-  #panelSekmeleri button[aria-selected="true"] { border-bottom: 2px solid var(--vurgu); font-weight: 600; }
-  #panelSekmeleri button.yeni::after { content: " •"; color: var(--kirmizi); }
-  .bolum { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-  .liste { flex: 1; overflow: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
-  .liste .bilgi { color: var(--soluk); font-size: 12px; }
-  .bolum form { display: grid; gap: 6px; padding: 8px; border-top: 1px solid var(--kenar); }
-  .bolum textarea { font: inherit; padding: 6px; border: 1px solid var(--kenar); border-radius: 6px; background: var(--panel); color: var(--yazi); }
-  .kisi { display: flex; gap: 6px; align-items: center; }
-  .kisi .ad { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .kisi button { padding: 1px 6px; font-size: 12px; }
-  .anket, .soru { border: 1px solid var(--kenar); border-radius: 8px; padding: 8px; }
-  .anket button.secenek { display: block; width: 100%; text-align: left; margin-top: 4px; position: relative; overflow: hidden; }
-  .anket button.secenek .cubuk { position: absolute; inset: 0 auto 0 0; background: var(--vurgu-acik); }
-  .anket button.secenek span { position: relative; }
-  .anket button.secenek.benim { border-color: var(--vurgu); font-weight: 600; }
-  .anket > button:last-child:not(.secenek) { margin-top: 6px; }
-  .soru.cevaplandi { opacity: .55; }
-  .soru .alt { display: flex; gap: 6px; align-items: center; margin-top: 4px; font-size: 12px; color: var(--soluk); }
-  .soru .alt button { padding: 1px 8px; font-size: 12px; }
+  .karo .yonetim button { padding: 3px 8px; font-size: 12px; background: rgb(8 20 24 / .7); color: #fff; border-color: transparent; }
+  .karo .yonetim button.tehlike { background: var(--kirmizi); }
   #sahne[data-duzen="spot"] { grid-template-columns: minmax(0, 1fr); }
   #sahne[data-duzen="spot"] .karo:not(.ana-karo) { display: none; }
   #sahne[data-duzen="kenar"] { grid-template-columns: minmax(0, 1fr) 200px; grid-auto-flow: row dense; }
@@ -194,27 +192,111 @@
   #sahne[data-duzen="kenar"] .karo.ana-karo { grid-row: span 4; }
   #sahne[data-duzen="kenar"] .karo:not(.ana-karo) { grid-column: 2; }
   #sahne.kendimi-gizle .karo.ben { display: none; }
-  #altOdaBilgi { display: flex; gap: 8px; align-items: center; padding: 6px 12px; background: #24476b; color: #fff; font-size: 13px; }
-  #altOdaBilgi span { flex: 1; }
-  #onizleme { border: 1px solid var(--kenar); border-radius: 12px; background: var(--panel); color: var(--yazi); padding: 18px; width: min(560px, 94vw); }
-  #onizleme::backdrop { background: rgba(0, 0, 0, .55); }
-  #onizleme form { display: grid; gap: 10px; }
-  #onizlemeVideo { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; transform: scaleX(-1); object-fit: cover; }
+  .tahta { grid-column: 1 / -1; background: #fff; border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+  .tahta canvas { width: 100%; aspect-ratio: 16 / 9; touch-action: none; cursor: crosshair; display: block; }
+  .tahta-arac { display: flex; gap: 6px; padding: 6px; background: #eef2ef; flex-wrap: wrap; align-items: center; }
+  .tahta-arac button { padding: 4px 10px; background: #fff; color: #14262c; border-color: #cfd8d4; }
+  .tahta-arac button.renk { width: 26px; height: 26px; border-radius: 50%; padding: 0; }
+  .tahta-arac button[aria-pressed="true"] { outline: 2px solid var(--vurgu); outline-offset: 1px; }
+  #altyazi { background: var(--sahne); color: #fff; padding: 4px 16px 8px; font-size: 17px; line-height: 1.45; text-align: center; }
+  #altyazi .satir span { background: rgb(8 20 24 / .8); display: inline-block; padding: 3px 12px; border-radius: 8px; margin: 2px 0; }
+  #altyazi b { color: var(--sari); margin-right: 6px; }
+
+  /* ---- yan panel: sohbet, kişiler, anket, soru-cevap ---- */
+  #gSohbet { width: 300px; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--kenar); }
+  #panelSekmeleri { display: flex; border-bottom: 1px solid var(--kenar); padding: 0 4px; }
+  #panelSekmeleri button { flex: 1; justify-content: center; border: 0; border-radius: 0; padding: 11px 2px 9px; font-size: 13px; background: transparent; color: var(--soluk); border-bottom: 2px solid transparent; }
+  #panelSekmeleri button[aria-selected="true"] { color: var(--yazi); border-bottom-color: var(--sari); font-weight: 600; }
+  #panelSekmeleri button.yeni::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--kirmizi); }
+  .bolum { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #gSohbetListe, .liste { flex: 1; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; }
+  #gSohbetListe .bilgi, .liste .bilgi { color: var(--soluk); font-size: 12.5px; }
+  #gSohbetListe b { margin-right: 5px; }
+  #gSohbetForm { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--kenar); }
+  #gSohbetForm input { flex: 1; min-width: 0; }
+  .bolum form:not(#gSohbetForm) { display: grid; gap: 6px; padding: 10px; border-top: 1px solid var(--kenar); }
+  .kisi { display: flex; gap: 8px; align-items: center; }
+  .kisi .ad { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kisi button { padding: 2px 7px; font-size: 12px; }
+  .anket, .soru { border: 1px solid var(--kenar); border-radius: 12px; padding: 10px; }
+  .anket > b { font-family: var(--yazi-baslik); font-size: 15px; }
+  .anket button.secenek { display: flex; width: 100%; text-align: left; margin-top: 5px; position: relative; overflow: hidden; border-radius: 10px; }
+  .anket button.secenek .cubuk { position: absolute; inset: 0 auto 0 0; background: var(--vurgu-acik); }
+  .anket button.secenek span { position: relative; }
+  .anket button.secenek.benim { border-color: var(--vurgu); font-weight: 600; }
+  .anket > button:last-child:not(.secenek) { margin-top: 8px; }
+  .soru.cevaplandi { opacity: .55; }
+  .soru .alt { display: flex; gap: 6px; align-items: center; margin-top: 6px; font-size: 12.5px; color: var(--soluk); }
+  .soru .alt button { padding: 2px 9px; font-size: 12px; }
+
+  /* ---- görüşme düğme çubuğu ---- */
+  #cagriCubugu { display: none; gap: 8px; justify-content: center; align-items: center; flex-wrap: wrap; padding: 10px 12px 14px; background: var(--sahne); }
+  #cagriCubugu.acik { display: flex; }
+  #sure { color: var(--murekkep-soluk); font: 600 14px/1 var(--yazi-baslik); font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; margin-right: 6px; }
+  #cagriCubugu > button { position: relative; width: 46px; height: 46px; padding: 0; justify-content: center; border: 0; background: var(--sahne-2); color: #e6efed; }
+  #cagriCubugu > button:hover { background: #2b505b; }
+  #cagriCubugu > button svg.lucide { width: 21px; height: 21px; }
+  #mikDugme[aria-pressed="false"], #kamDugme[aria-pressed="false"] { background: var(--kirmizi); }
+  #cagriCubugu [aria-pressed="false"] .acik, #cagriCubugu [aria-pressed="true"] .kapali { display: none; }
+  :is(#ekranDugme, #elDugme, #gSohbetDugme, #altyaziDugme)[aria-pressed="true"] { background: var(--sari); color: var(--murekkep); }
+  #cagriCubugu > #ayrilDugme { width: auto; padding: 0 18px; margin-left: 6px; background: var(--kirmizi); font-weight: 600; }
+  #cagriCubugu > #ayrilDugme:hover { background: #a83524; }
+  .rozet { position: absolute; top: -3px; right: -3px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--sari); color: var(--murekkep); font: 700 11px/18px var(--yazi-govde); }
+  [popover] { border: 1px solid var(--kenar); border-radius: 16px; background: var(--panel); color: var(--yazi); box-shadow: var(--golge); padding: 8px; }
+  #tepkiler:popover-open { display: flex; gap: 2px; position: fixed; inset: auto 0 92px 0; margin: 0 auto; width: max-content; border-radius: 999px; padding: 5px; }
+  #tepkiler button { border: 0; background: transparent; font-size: 25px; padding: 6px 8px; transition: transform .12s; }
+  #tepkiler button:hover:not(:disabled) { background: var(--vurgu-acik); transform: translateY(-2px) scale(1.12); }
+  #dahaMenu:popover-open { display: grid; gap: 2px; position: fixed; inset: auto 16px 92px auto; margin: 0; width: min(340px, 92vw); max-height: 72vh; overflow: auto; }
+  #dahaMenu > button, #sahipMenu > button { justify-content: flex-start; border-radius: 10px; border-color: transparent; background: transparent; padding: 9px 10px; }
+  #dahaMenu > button:hover, #sahipMenu > button:hover { background: var(--vurgu-acik); }
+  #dahaMenu > button[aria-pressed="true"] { background: var(--sari-acik); }
+  #sahipMenu > button.tehlike { background: var(--kirmizi); color: #fff; justify-content: center; margin-top: 4px; }
+  #dahaMenu label { display: flex; gap: 8px; align-items: center; font-size: 13.5px; padding: 4px 10px; }
+  #dahaMenu select, #dahaMenu input[type="number"] { padding: 5px 8px; }
+  #sahipMenu { display: grid; gap: 2px; border-top: 1px solid var(--kenar); margin-top: 6px; padding-top: 8px; }
+  #sahipMenu > b { font: 600 13px/1 var(--yazi-baslik); color: var(--soluk); padding: 4px 10px 6px; }
+  #odaListesi { display: grid; gap: 4px; font-size: 13px; padding: 0 10px; }
+  .satir2 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #cihazPanel { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; align-items: center; padding: 0 12px 12px; background: var(--sahne); color: #e6efed; font-size: 13.5px; }
+  #cihazPanel select { max-width: 230px; margin-left: 6px; padding: 6px 8px; background: var(--sahne-2); color: #e6efed; border-color: transparent; }
+
+  /* ---- giriş ve önizleme ---- */
+  #giris { position: fixed; inset: 0; display: grid; place-items: center; background: var(--murekkep); }
+  #giris form { background: var(--panel); border-radius: 18px; padding: 28px; display: grid; gap: 14px; width: min(360px, 90vw); box-shadow: var(--golge); }
+  #girisBaslik { font: 700 22px/1.25 var(--yazi-baslik); }
+  #giris label { display: grid; gap: 4px; color: var(--soluk); font-size: 14px; }
+  #giris button { justify-content: center; padding: 10px; }
+  #onizleme { border: 0; border-radius: 18px; background: var(--panel); color: var(--yazi); padding: 22px; width: min(560px, 94vw); box-shadow: var(--golge); }
+  #onizleme::backdrop { background: rgb(8 20 24 / .6); }
+  #onizleme form { display: grid; gap: 12px; }
+  #onizleme strong { font: 700 20px/1.2 var(--yazi-baslik); }
+  #onizlemeVideo { width: 100%; aspect-ratio: 16 / 9; background: var(--video); border-radius: 14px; transform: scaleX(-1); object-fit: cover; }
   #onizleme meter { width: 100%; }
-  body.pip { margin: 0; height: 100vh; display: flex; flex-direction: column; background: var(--video); }
+  #onizleme [aria-pressed="false"] { background: var(--kirmizi); border-color: var(--kirmizi); color: #fff; }
+
+  body.konuk #yan, body.konuk #mesajlar, body.konuk #yazma, body.konuk #uyari,
+  body.konuk #cagriDugme, body.konuk #baglantiDugme, body.konuk #planDugme { display: none; }
+  body.konuk #uygulama { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  body.konuk #gorusme { max-height: none; flex: 1; }
+  body.konuk #sahne { align-content: center; }
+  body.pip { margin: 0; height: 100vh; display: flex; flex-direction: column; background: var(--sahne); }
   body.pip #gorusme { max-height: none; flex: 1; }
   @media (max-width: 700px) {
-    #uygulama { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-    #yan { max-height: 34vh; border-right: 0; border-bottom: 1px solid var(--kenar); }
+    /* Kaydırılabilir yan menünün içerik yüksekliği 0 sayılır; sabit pay verilmezse görüşme açılınca ezilir. */
+    #uygulama { grid-template-columns: 1fr; grid-template-rows: 30vh minmax(0, 1fr); }
+    body.konuk #uygulama { grid-template-rows: minmax(0, 1fr); }
+    #baslik { padding: 10px 12px; flex-wrap: wrap; }
     #gorusme { flex-direction: column; }
     #gSohbet { width: auto; max-height: 40vh; border-left: 0; border-top: 1px solid var(--kenar); }
+    #cagriCubugu > button { width: 42px; height: 42px; }
+    #yazma { margin: 0 10px 6px; }
   }
 </style>
 </head>
 <body>
 <div id="giris" hidden>
   <form id="girisForm">
-    <strong id="girisBaslik">Ekip İletişim — yerel deneme</strong>
+    <strong id="girisBaslik">Ekip İletişim (yerel deneme)</strong>
     <label>Adın <input id="girisAd" required autocomplete="name" maxlength="60"></label>
     <button class="ana" id="girisDugme">Gir</button>
   </form>
@@ -222,15 +304,19 @@
 
 <div id="uygulama" hidden>
   <aside id="yan">
-    <input id="ara" type="search" placeholder="🔍 Mesajlarda ara" aria-label="Mesajlarda ara">
-    <h2>Kanallar <button id="kanalEkle" title="Kanal ekle" aria-label="Kanal ekle">+</button></h2>
+    <div id="marka">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 3h20a4 4 0 0 1 4 4v13a4 4 0 0 1-4 4H14l-6 5v-5H6a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4z" fill="#f2be2e"/><rect x="7.5" y="9.5" width="11" height="8" rx="2" fill="#11303a"/><path d="M18.5 12.6l5-3v8l-5-3z" fill="#11303a"/></svg>
+      Ekip
+    </div>
+    <div class="arama-kutu"><i data-lucide="search"></i><input id="ara" type="search" placeholder="Mesajlarda ara" aria-label="Mesajlarda ara"></div>
+    <h2>Kanallar <button id="kanalEkle" title="Kanal ekle" aria-label="Kanal ekle"><i data-lucide="plus"></i></button></h2>
     <div id="kanalListesi"></div>
     <h2>Çevrimiçi</h2>
     <div id="kisiListesi"></div>
-    <button id="bildirimDugme" hidden style="margin: 12px 14px 0">🔔 Bildirimleri aç</button>
-    <button id="kurDugme" hidden style="margin: 8px 14px 0">📲 Uygulama olarak kur</button>
+    <button id="bildirimDugme" hidden><i data-lucide="bell"></i>Bildirimleri aç</button>
+    <button id="kurDugme" hidden><i data-lucide="download"></i>Uygulama olarak kur</button>
     <select id="durumSec" aria-label="Durumum">
-      <option value="musait">🟢 Müsait</option><option value="mesgul">🔴 Meşgul (bildirim yok)</option><option value="uzakta">🟡 Uzakta</option>
+      <option value="musait">Müsait</option><option value="mesgul">Meşgul (bildirim yok)</option><option value="uzakta">Uzakta</option>
     </select>
     <div id="ben"></div>
   </aside>
@@ -238,9 +324,9 @@
     <div id="baslik">
       <h1 id="kanalAdi"></h1>
       <span id="cagriBilgi"></span>
-      <button id="planDugme" title="İleri tarihli toplantı oluştur, sohbete kartını gönder">📅 Planla</button>
-      <button id="baglantiDugme" title="Linke sahip olan herkes, ERP girişi olmadan bu görüşmeye katılabilir">Görüşme bağlantısı</button>
-      <button id="cagriDugme" class="ana">Görüşme başlat</button>
+      <button id="planDugme" title="İleri tarihli toplantı oluştur, sohbete kartını gönder"><i data-lucide="calendar-plus"></i>Planla</button>
+      <button id="baglantiDugme" title="Linke sahip olan herkes, ERP girişi olmadan bu görüşmeye katılabilir"><i data-lucide="link-2"></i>Görüşme bağlantısı</button>
+      <button id="cagriDugme" class="ana"><i data-lucide="video"></i><span class="etiket">Görüşme başlat</span></button>
     </div>
     <form id="planPanel" hidden>
       <label>Konu<input id="planKonu" required maxlength="120" placeholder="Haftalık kalite toplantısı"></label>
@@ -257,7 +343,7 @@
     <div id="beklemeMesaji" hidden></div>
     <div id="bekleyenler" hidden></div>
     <div id="kayitSeridi" hidden role="status"></div>
-    <div id="altOdaBilgi" hidden><span id="altOdaMetin"></span><button id="anaOdayaDon">↩ Ana odaya dön</button></div>
+    <div id="altOdaBilgi" hidden><span id="altOdaMetin"></span><button id="anaOdayaDon">Ana odaya dön</button></div>
     <div id="gorusme">
       <div id="sahne"></div>
       <aside id="gSohbet" hidden>
@@ -286,40 +372,41 @@
     <div id="altyazi" hidden aria-live="polite"></div>
     <div id="cagriCubugu">
       <span id="sure" title="Görüşme süresi"></span>
-      <button id="mikDugme" aria-pressed="true" title="Ctrl+D">Mikrofon</button>
-      <button id="kamDugme" aria-pressed="true" title="Ctrl+E">Kamera</button>
-      <button id="ekranDugme" aria-pressed="false" title="Paylaşırken 'Sesi de paylaş' seçilirse bilgisayar sesi de gider">Ekranı paylaş</button>
-      <button id="elDugme" aria-pressed="false">✋ El kaldır</button>
-      <span id="tepkiler" role="group" aria-label="Tepki gönder">
+      <button id="mikDugme" aria-pressed="true" aria-label="Mikrofon" title="Mikrofon (Ctrl+D)"><i data-lucide="mic" class="acik"></i><i data-lucide="mic-off" class="kapali"></i></button>
+      <button id="kamDugme" aria-pressed="true" aria-label="Kamera" title="Kamera (Ctrl+E)"><i data-lucide="video" class="acik"></i><i data-lucide="video-off" class="kapali"></i></button>
+      <button id="ekranDugme" aria-pressed="false" aria-label="Ekranı paylaş" title="Ekranı paylaş. 'Sesi de paylaş' seçilirse bilgisayar sesi de gider"><i data-lucide="screen-share"></i></button>
+      <button id="elDugme" aria-pressed="false" aria-label="El kaldır" title="El kaldır"><i data-lucide="hand"></i></button>
+      <button id="tepkiDugme" popovertarget="tepkiler" aria-label="Tepki gönder" title="Tepki gönder"><i data-lucide="smile-plus"></i></button>
+      <button id="gSohbetDugme" aria-pressed="false" aria-label="Sohbet, kişiler, anket, soru-cevap" title="Sohbet, kişiler, anket, soru-cevap"><i data-lucide="message-square-text"></i><span class="rozet" id="panelRozet" hidden></span></button>
+      <button id="altyaziDugme" aria-pressed="false" aria-label="Altyazı" title="Altyazı: herkesin konuşması yazıya çevrilir. Konuşma, tarayıcının ses tanıma servisine gönderilir (Chrome: Google, Edge: Microsoft)."><i data-lucide="captions"></i></button>
+      <button id="dahaDugme" popovertarget="dahaMenu" aria-label="Daha fazla" title="Daha fazla"><i data-lucide="ellipsis"></i></button>
+      <button id="ayrilDugme" class="tehlike"><i data-lucide="phone-off"></i>Ayrıl</button>
+      <div id="tepkiler" popover role="group" aria-label="Tepki gönder">
         <button data-emoji="👍" aria-label="Beğendim">👍</button><button data-emoji="❤️" aria-label="Kalp">❤️</button><button data-emoji="😂" aria-label="Gülüyorum">😂</button><button data-emoji="👏" aria-label="Alkış">👏</button><button data-emoji="🎉" aria-label="Kutlama">🎉</button>
-      </span>
-      <button id="gSohbetDugme" aria-pressed="false" title="Sohbet, kişiler, anket, soru-cevap">💬 Sohbet</button>
-      <button id="altyaziDugme" aria-pressed="false" title="Herkesin konuşması yazıya çevrilir. Konuşma, tarayıcının ses tanıma servisine gönderilir (Chrome: Google, Edge: Microsoft).">CC Altyazı</button>
-      <button id="dahaDugme" popovertarget="dahaMenu">⋯ Daha fazla</button>
-      <button id="ayrilDugme" class="tehlike">Ayrıl</button>
+      </div>
       <div id="dahaMenu" popover>
-        <button id="tahtaDugme" aria-pressed="false" title="Herkesin birlikte çizebildiği beyaz tahta">🖍 Beyaz tahta</button>
-        <button id="kayitDugme" hidden aria-pressed="false" title="Kayıt Drive'a yüklenir ve sohbete bağlantısı düşer">⏺ Kaydet</button>
-        <button id="dokumDugme" hidden title="Görüşme dökümünü kaydet">📝 Dökümü kaydet</button>
-        <button id="ozetDugme" hidden title="Altyazı dökümü ve görüşme sohbetinden Claude ile özet, karar ve aksiyon listesi çıkarır; kanala gönderir">✨ AI toplantı özeti</button>
-        <button id="pipDugme" title="Görüşme her zaman üstte duran küçük pencereye taşınır">⧉ Küçük pencere</button>
-        <button id="cihazDugme">⚙ Cihazlar ve arka plan</button>
+        <button id="tahtaDugme" aria-pressed="false" title="Herkesin birlikte çizebildiği beyaz tahta"><i data-lucide="pen-tool"></i>Beyaz tahta</button>
+        <button id="kayitDugme" hidden aria-pressed="false" title="Kayıt Drive'a yüklenir ve sohbete bağlantısı düşer"><i data-lucide="circle-dot"></i><span class="etiket">Kaydet</span></button>
+        <button id="dokumDugme" hidden title="Görüşme dökümünü kaydet"><i data-lucide="file-text"></i>Dökümü kaydet</button>
+        <button id="ozetDugme" hidden title="Altyazı dökümü ve görüşme sohbetinden Claude ile özet, karar ve aksiyon listesi çıkarır; kanala gönderir"><i data-lucide="sparkles"></i>AI toplantı özeti</button>
+        <button id="pipDugme" title="Görüşme her zaman üstte duran küçük pencereye taşınır"><i data-lucide="picture-in-picture-2"></i>Küçük pencere</button>
+        <button id="cihazDugme"><i data-lucide="settings"></i>Cihazlar ve arka plan</button>
         <label>Düzen <select id="secDuzen"><option value="oto">Otomatik</option><option value="doseme">Döşeme</option><option value="spot">Spot (tek kişi)</option><option value="kenar">Kenar çubuğu</option></select></label>
         <label><input type="checkbox" id="kendimiGizle"> Kendi görüntümü gizle</label>
         <label id="ceviriSatiri" hidden title="Başkalarının altyazısı Claude ile çevrilip ayrıca gösterilir">Altyazı çevirisi <select id="secCeviri"><option value="">Kapalı</option><option value="tr">Türkçe</option><option value="en">English</option><option value="de">Deutsch</option><option value="fr">Français</option><option value="ar">العربية</option><option value="ru">Русский</option></select></label>
         <div id="sahipMenu" hidden>
           <b>Toplantı sahibi</b>
-          <button id="susturHepsi" title="Senin dışındaki herkesin mikrofonunu kapatır">🔇 Herkesi sustur</button>
-          <button id="elleriIndir">✋ Bütün elleri indir</button>
-          <button id="kilitDugme" aria-pressed="false" title="Kilitliyken yeni gelen misafir bekleme salonuna da düşmez">🔒 Toplantıyı kilitle</button>
+          <button id="susturHepsi" title="Senin dışındaki herkesin mikrofonunu kapatır"><i data-lucide="mic-off"></i>Herkesi sustur</button>
+          <button id="elleriIndir"><i data-lucide="hand"></i>Bütün elleri indir</button>
+          <button id="kilitDugme" aria-pressed="false" title="Kilitliyken yeni gelen misafir bekleme salonuna da düşmez"><i data-lucide="lock"></i><span class="etiket">Toplantıyı kilitle</span></button>
           <label><input type="checkbox" id="izinSohbet" checked> Misafirler sohbete yazabilir</label>
           <label><input type="checkbox" id="izinEkran" checked> Misafirler ekran paylaşabilir</label>
           <label><input type="checkbox" id="izinTepki" checked> Misafirler tepki gönderebilir</label>
           <div class="satir2"><label>Alt oda <input type="number" id="odaSayi" min="2" max="9" value="2" style="width: 56px"></label><label>Süre (dk) <input type="number" id="odaSure" min="1" max="120" value="10" style="width: 64px"></label></div>
-          <button id="odaAc">🚪 Alt odaları aç (rastgele dağıt)</button>
+          <button id="odaAc"><i data-lucide="door-open"></i>Alt odaları aç (rastgele dağıt)</button>
           <div id="odaListesi"></div>
-          <button id="katilimDugme">📋 Katılım raporu (CSV)</button>
-          <button id="bitirDugme" class="tehlike">⏹ Herkes için bitir</button>
+          <button id="katilimDugme"><i data-lucide="clipboard-list"></i>Katılım raporu (CSV)</button>
+          <button id="bitirDugme" class="tehlike"><i data-lucide="square"></i><span class="etiket">Herkes için bitir</span></button>
         </div>
       </div>
     </div>
@@ -340,10 +427,10 @@
     <div id="yaziyor" aria-live="polite"></div>
     <div id="yanitSeridi" hidden><span id="yanitMetin"></span><button type="button" id="yanitIptal" aria-label="Yanıtı iptal et">✕</button></div>
     <form id="yazma">
-      <button type="button" id="dosyaDugme" title="Dosya gönder (Drive, en fazla 25 MB)" aria-label="Dosya gönder">📎</button>
+      <button type="button" id="dosyaDugme" title="Dosya gönder (Drive, en fazla 2 GB)" aria-label="Dosya gönder"><i data-lucide="paperclip"></i></button>
       <input type="file" id="dosyaSec" hidden>
       <input id="metin" placeholder="Mesaj yaz…" autocomplete="off" maxlength="4000">
-      <button class="ana">Gönder</button>
+      <button class="ana"><i data-lucide="send-horizontal"></i>Gönder</button>
     </form>
     <div id="uyari"></div>
   </main>
@@ -354,8 +441,8 @@
     <strong>Görüşmeye katılmadan önce</strong>
     <video id="onizlemeVideo" autoplay playsinline muted></video>
     <div class="satir2">
-      <button type="button" id="onMik" aria-pressed="true">Mikrofon</button>
-      <button type="button" id="onKam" aria-pressed="true">Kamera</button>
+      <button type="button" id="onMik" aria-pressed="true"><i data-lucide="mic"></i>Mikrofon</button>
+      <button type="button" id="onKam" aria-pressed="true"><i data-lucide="video"></i>Kamera</button>
       <label>Arka plan <select id="onArka"></select></label>
       <label><input type="checkbox" id="onIsik"> Işığı artır</label>
     </div>
@@ -390,6 +477,20 @@ let pipPencere = null, pipYeri = null;
 const $ = (id) => document.getElementById(id) || (pipPencere && pipPencere.document.getElementById(id));
 const karo = (id) => $('sahne').querySelector(`.karo[data-id="${CSS.escape(id)}"]`);
 const indir = (blob, ad) => { const a = el('a'); a.href = URL.createObjectURL(blob); a.download = ad; document.body.append(a); a.click(); a.remove(); };
+// İkonlu düğmelerde yazı .etiket içinde: yazıyı değiştirmek ikonu silmesin.
+const yaz = (id, metin) => { const d = $(id), s = d.querySelector('.etiket'); (s || d).textContent = metin; };
+// Baş harfli yuvarlak; renk addan türetilir, aynı kişi her yerde aynı renkte görünür.
+const AVATAR_RENK = ['#1e6b52', '#2d5d7b', '#8a5a2b', '#6b4c8a', '#9b3d3d', '#3f6e2e', '#0f6a73'];
+function avatar(ad, durum) {
+  const s = String(ad || '?');
+  const harf = s.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toLocaleUpperCase('tr-TR');
+  let h = 0; for (const c of s) h = (h * 31 + c.codePointAt(0)) >>> 0;
+  const a = el('span', 'avatar', harf || '?');
+  a.style.background = AVATAR_RENK[h % AVATAR_RENK.length];
+  a.setAttribute('aria-hidden', 'true');
+  if (durum) a.dataset.durum = durum;
+  return a;
+}
 const mmss = (sn) => (sn >= 3600 ? Math.floor(sn / 3600) + ':' : '') + String(Math.floor(sn / 60) % 60).padStart(2, '0') + ':' + String(sn % 60).padStart(2, '0');
 const el = (etiket, sinif, metin) => { const e = document.createElement(etiket); if (sinif) e.className = sinif; if (metin != null) e.textContent = metin; return e; };
 
@@ -796,7 +897,7 @@ function kisileriCiz() {
   const kok = $('kisiListesi'); kok.replaceChildren();
   for (const [id, k] of durum.cevrimici) {
     if (id === durum.ben.id) continue;
-    const o = el('div', 'oge'); o.append(el('span', 'nokta ' + k.durum), el('span', null, k.ad));
+    const o = el('div', 'oge'); o.append(avatar(k.ad, k.durum), el('span', null, k.ad));
     const not = k.cagri ? 'görüşmede' : { mesgul: 'meşgul', uzakta: 'uzakta' }[k.durum];
     if (not) o.append(el('span', 'not', not));
     o.title = 'Birebir sohbet aç';
@@ -817,15 +918,19 @@ function mesajlariCiz() {
   const liste = durum.mesajlar.get(durum.aktif) || [];
   if (!liste.length) kok.append(el('div', 'bos', 'Henüz mesaj yok. İlk mesajı sen yaz.'));
   const benimSon = [...liste].reverse().find((m) => m.yazar_id === durum.ben.id && !m.silindi);
-  for (const m of liste) kok.append(mesajCiz(m, m === benimSon));
+  let onceki = null;
+  for (const m of liste) { kok.append(mesajCiz(m, m === benimSon, onceki)); onceki = m; }
   kok.scrollTop = alttaydi ? kok.scrollHeight : eski; // okurken yukarıdaysa yerinden oynatma
   okunduGonder();
 }
 
-function mesajCiz(m, benimSon) {
+// Aynı kişinin 5 dakika içindeki ardışık mesajları tek grupta: avatar ve ad yalnız ilkinde.
+function mesajCiz(m, benimSon, onceki) {
   const benim = m.yazar_id === durum.ben.id;
-  const d = el('div', 'mesaj' + (!benim && bahsedildiMi(m) ? ' bahsetme' : ''));
+  const devam = !!onceki && onceki.yazar_id === m.yazar_id && !m.yanit && !m.toplanti && zaman(m.olusma) - zaman(onceki.olusma) < 300000;
+  const d = el('div', 'mesaj' + (devam ? ' devam' : '') + (!benim && bahsedildiMi(m) ? ' bahsetme' : ''));
   d.dataset.id = m.id;
+  if (!devam) d.append(avatar(m.yazar_ad));
   if (m.yanit && !m.silindi) {
     const a = el('div', 'alinti', `↩ ${m.yanit.ad}: ${m.yanit.metin}`);
     a.onclick = () => mesajaGit(m.yanit.id);
@@ -918,7 +1023,7 @@ function basligiCiz() {
   $('cagriBilgi').textContent = misafirde ? 'Bağlantılı görüşmedesin' : n && !bende ? `Görüşme sürüyor · ${n} kişi` : '';
   $('cagriDugme').hidden = !!durum.cagri;
   $('baglantiDugme').hidden = !!durum.cagri;
-  $('cagriDugme').textContent = n ? 'Görüşmeye katıl' : 'Görüşme başlat';
+  yaz('cagriDugme', n ? 'Görüşmeye katıl' : 'Görüşme başlat');
 }
 
 const boyutYaz = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
@@ -1351,8 +1456,9 @@ async function cagridanAyril(gecis) {
   $('sahne').replaceChildren(); delete $('sahne').dataset.duzen;
   $('gorusme').classList.remove('acik'); $('cagriCubugu').classList.remove('acik');
   $('ekranDugme').setAttribute('aria-pressed', 'false');
-  $('elDugme').setAttribute('aria-pressed', 'false'); $('elDugme').textContent = '✋ El kaldır';
-  $('gSohbetDugme').setAttribute('aria-pressed', 'false'); $('gSohbetDugme').textContent = '💬 Sohbet';
+  $('elDugme').setAttribute('aria-pressed', 'false'); $('elDugme').title = 'El kaldır';
+  $('gSohbetDugme').setAttribute('aria-pressed', 'false'); $('panelRozet').hidden = true;
+  if ($('tepkiler').matches(':popover-open')) $('tepkiler').hidePopover();
   $('gSohbet').hidden = true; $('cihazPanel').hidden = true;
   $('gSohbetListe').replaceChildren($('gSohbetListe').firstElementChild);
   ['kisilerListe', 'anketListe', 'soruListe', 'odaListesi'].forEach((id) => $(id).replaceChildren());
@@ -1495,7 +1601,7 @@ async function kayitBaslat() {
   k.saat.onmessage = ciz;
   k.kaydedici.start(2000);
   c.kayit = k;
-  $('kayitDugme').textContent = '⏹ Kaydı durdur'; $('kayitDugme').setAttribute('aria-pressed', 'true');
+  yaz('kayitDugme', 'Kaydı durdur'); $('kayitDugme').setAttribute('aria-pressed', 'true');
   cagriDurumuYay(); kayitSeridiCiz();
 }
 
@@ -1503,7 +1609,7 @@ async function kayitDurdur() {
   const c = durum.cagri, k = c && c.kayit;
   if (!k) return;
   c.kayit = null;
-  $('kayitDugme').textContent = '⏺ Kaydet'; $('kayitDugme').setAttribute('aria-pressed', 'false');
+  yaz('kayitDugme', 'Kaydet'); $('kayitDugme').setAttribute('aria-pressed', 'false');
   cagriDurumuYay(); kayitSeridiCiz();
   await new Promise((ok) => { k.kaydedici.onstop = ok; k.kaydedici.stop(); });
   k.saat.terminate(); k.kaynaklar.forEach((s) => s.disconnect());
@@ -1964,7 +2070,7 @@ function elKaldir() {
   const c = durum.cagri;
   c.el = c.el ? false : Date.now();
   $('elDugme').setAttribute('aria-pressed', String(!!c.el));
-  $('elDugme').textContent = c.el ? '✋ Eli indir' : '✋ El kaldır';
+  $('elDugme').title = c.el ? 'Eli indir' : 'El kaldır';
   elleriCiz(); kisileriCizCagri();
   cagriDurumuYay();
 }
@@ -2024,7 +2130,8 @@ function panelUyarisi(b) {
 
 function panelDugmesi() {
   const n = durum.cagri.gOkunmamis, yeni = $('panelSekmeleri').querySelector('button.yeni');
-  $('gSohbetDugme').textContent = n ? `💬 Sohbet (${n})` : yeni ? '💬 Sohbet •' : '💬 Sohbet';
+  $('panelRozet').textContent = n || (yeni ? '•' : '');
+  $('panelRozet').hidden = !n && !yeni;
 }
 
 // ---------- katılmadan önce önizleme (Meet'teki "hazır mısın" ekranı) ----------
@@ -2079,12 +2186,13 @@ function izinleriUygula() {
   if (!ekran && c.ekran) ekranBitti();
   $('ekranDugme').disabled = !ekran;
   $('tepkiler').querySelectorAll('button').forEach((b) => { b.disabled = !tepki; });
+  $('tepkiDugme').disabled = !tepki;
 }
 
 function kilitDugmesi() {
   const c = durum.cagri;
   $('kilitDugme').setAttribute('aria-pressed', String(c.kilit));
-  $('kilitDugme').textContent = c.kilit ? '🔓 Kilidi aç' : '🔒 Toplantıyı kilitle';
+  yaz('kilitDugme', c.kilit ? 'Kilidi aç' : 'Toplantıyı kilitle');
 }
 
 function kisileriCizCagri() {
@@ -2092,7 +2200,7 @@ function kisileriCizCagri() {
   const liste = [[durum.ben.id, { ad: durum.ben.ad + ' (sen)', erp: c.erp, mik: !!mik && mik.enabled }], ...c.katilanlar];
   $('kisilerListe').replaceChildren(el('div', 'bilgi', `${liste.length} kişi · 👑 toplantı sahibi`), ...liste.map(([id, g]) => {
     const s = el('div', 'kisi'), bekliyor = id !== durum.ben.id && !izinli(id, g), sira = c.elSirasi.get(id);
-    s.append(el('span', 'ad', g.ad), el('span', null, [g.erp ? '👑' : '', sira ? '✋' + sira : '', g.mik === false ? '🔇' : '', bekliyor ? '⏳' : ''].join(' ')));
+    s.append(avatar(id === durum.ben.id ? durum.ben.ad : g.ad), el('span', 'ad', g.ad), el('span', null, [g.erp ? '👑' : '', sira ? '✋' + sira : '', g.mik === false ? '🔇' : '', bekliyor ? '⏳' : ''].join(' ')));
     if (c.erp && id !== durum.ben.id && !bekliyor) {
       const dugme = (yazi, baslik, fn) => { const b = el('button', null, yazi); b.title = baslik; b.setAttribute('aria-label', baslik); b.onclick = fn; s.append(b); };
       if (g.mik !== false) dugme('🔇', 'Mikrofonunu kapat', () => komutGonder('sustur', id));
@@ -2600,8 +2708,8 @@ function cagriDugmeleriniBagla() {
   $('bitirDugme').onclick = (e) => {
     const d = e.currentTarget;
     if (!d.dataset.onay) {
-      d.dataset.onay = '1'; d.textContent = '⏹ Emin misin? Bir daha bas';
-      setTimeout(() => { delete d.dataset.onay; d.textContent = '⏹ Herkes için bitir'; }, 4000);
+      d.dataset.onay = '1'; yaz('bitirDugme', 'Emin misin? Bir daha bas');
+      setTimeout(() => { delete d.dataset.onay; yaz('bitirDugme', 'Herkes için bitir'); }, 4000);
       return;
     }
     komutGonder('bitir', '*');
@@ -2674,6 +2782,7 @@ async function basla() {
   cagriDugmeleriniBagla();
   kanalaGec('genel');
 }
+if (window.lucide) lucide.createIcons(); // <i data-lucide="…"> → SVG; ikonlar yüklenemezse düğmeler yazılarıyla kalır
 basla();
 </script>
 </body>
