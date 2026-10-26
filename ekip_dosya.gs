@@ -33,6 +33,7 @@ function doPost(e) {
     const kullanici = kullaniciDogrula(g.token);
     if (g.islem === 'ozet') return yanit(toplantiOzeti(g));
     if (g.islem === 'kacirdiklar') return yanit(kacirdiklar(g));
+    if (g.islem === 'sor') return yanit(kanalaSor(g));
     if (g.islem === 'cevir') return yanit(cevir(g));
     if (g.islem === 'baslat') return yanit(oturumBaslat(g, kullanici));
     if (g.islem === 'parca') return yanit(parcaGonder(g));
@@ -146,6 +147,17 @@ function kacirdiklar(g) {
     'Önce 2-5 maddede ne konuşulduğu. Sonra varsa "SENDEN BEKLENEN" (kullanıcıya soru, istek, görev) ve "KARARLAR" bölümleri; yoksa o bölümü yazma.\n' +
     'Kimin ne dediğini adıyla belirt. Mesajlarda geçmeyen bilgi ekleme.';
   return { ok: true, ozet: claude(sistem, metin) };
+}
+
+// Kanal hafızası: istemci soruyla ilgili mesaj ve kayıt konuşması alıntılarını seçip gönderir; yanıt yalnız bunlardan verilir.
+function kanalaSor(g) {
+  const soru = String(g.soru || '').slice(0, 500), baglam = String(g.metin || '').slice(0, 80000);
+  if (!soru.trim() || !baglam.trim()) throw new Error('Soru ya da kanal geçmişi yok');
+  const sistem = 'Bir iş ekibinin sohbet kanalındaki mesajlardan ve görüşme kayıtlarının konuşma dökümlerinden seçilmiş alıntıları alacaksın. ' +
+    'Kanal: ' + String(g.konu || '-').slice(0, 120) + '. Soruyu YALNIZ bu alıntılara dayanarak Türkçe, en fazla 1200 karakterle yanıtla. ' +
+    'Markdown kullanma; maddeleri "• " ile yaz. Her bilginin yanında kim söyledi ve ne zaman olduğunu yaz (örn. "Ayşe, 12.10"). ' +
+    'Alıntılarda cevap yoksa bunu açıkça söyle; tahmin etme, bilgi uydurma. Konuşma dökümleri sesten yazıya çevrildiği için yazım hataları olabilir.';
+  return { ok: true, cevap: claude(sistem, 'SORU: ' + soru + '\n\nALINTILAR:\n' + baglam) };
 }
 
 function cevir(g) {

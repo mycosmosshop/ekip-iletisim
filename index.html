@@ -88,6 +88,11 @@
   #ben > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #ben .avatar { width: 34px; height: 34px; }
   .avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+  #sorPenceresi { border: 0; border-radius: 18px; background: var(--panel); color: var(--yazi); padding: 22px; width: min(640px, 94vw); max-height: 90vh; overflow: auto; box-shadow: var(--golge); }
+  #sorPenceresi::backdrop { background: rgb(8 20 24 / .6); }
+  #sorPenceresi form { display: grid; gap: 12px; }
+  #sorPenceresi strong { font: 700 20px/1.2 var(--yazi-baslik); }
+  #sorCevap { white-space: pre-wrap; line-height: 1.55; padding: 12px; border-radius: 10px; background: var(--vurgu-acik); }
   #epostaPenceresi { border: 0; border-radius: 18px; background: var(--panel); color: var(--yazi); padding: 22px; width: min(720px, 94vw); max-height: 94vh; overflow: auto; box-shadow: var(--golge); }
   #epostaPenceresi::backdrop { background: rgb(8 20 24 / .6); }
   #epostaPenceresi form { display: grid; gap: 12px; }
@@ -599,6 +604,7 @@
     <form id="yazma">
       <button type="button" id="dosyaDugme" title="Dosya gönder (Drive, en fazla 2 GB)" aria-label="Dosya gönder"><i data-lucide="paperclip"></i></button>
       <button type="button" id="sesDugme" title="Sesli mesaj (en fazla 3 dakika; yazıya da dökülür)" aria-label="Sesli mesaj kaydet"><i data-lucide="mic"></i></button>
+      <button type="button" id="sorDugme" title="Kanal geçmişine ve kayıtlara Claude ile soru sor" aria-label="Kanal hafızasına sor"><i data-lucide="brain"></i></button>
       <input type="file" id="dosyaSec" multiple hidden>
       <input id="metin" placeholder="Mesaj yaz…" autocomplete="off" maxlength="4000">
       <button class="ana"><i data-lucide="send-horizontal"></i>Gönder</button>
@@ -618,6 +624,16 @@
     </div>
     <div id="kanalHata" class="hata" hidden></div>
     <div class="satir2"><button value="tamam" class="ana" id="kanalTamam">Kanalı oluştur</button><button value="vazgec" formnovalidate>Vazgeç</button><button type="button" id="kanaldanAyril" hidden>Kanaldan ayrıl</button></div>
+  </form>
+</dialog>
+
+<dialog id="sorPenceresi">
+  <form method="dialog">
+    <strong>Kanal hafızasına sor</strong>
+    <div class="ust-bilgi" id="sorBilgi">Bu kanalın mesajları ve kayıtlı görüşmelerin konuşmaları taranır; Claude yalnız bulduğu alıntılardan yanıtlar.</div>
+    <input id="sorMetin" maxlength="500" placeholder="Örn: Tedarikçi teslim tarihi için ne karar verdik?" autocomplete="off">
+    <div id="sorCevap" hidden></div>
+    <div class="satir2"><button type="button" class="ana" id="sorGonder">Sor</button><button value="kapat" formnovalidate>Kapat</button></div>
   </form>
 </dialog>
 
@@ -1572,6 +1588,36 @@ async function kanalaGec(k) {
   await gecmisYukle(k);
   mesajlariCiz();
   if (durum.aktif === k) kacirdiklariGoster(k, oturumda || await dbOkundu);
+}
+
+// ---------- kanal hafızası: soru -> ilgili mesaj/kayıt alıntıları -> Claude ----------
+// Gömme (embedding) yok: soru sözcükleriyle son 1000 mesaj puanlanır, en ilgili 80 + son 30 mesaj gider; kayıt konuşmalarından
+// yalnız eşleşen yerlerin çevresi alınır. ponytail: eş anlamlıyı bulamaz, gerekirse gömme + vektör araması.
+async function kanalaSor() {
+  const k = durum.aktif, soru = $('sorMetin').value.trim(), cevap = $('sorCevap'), dugme = $('sorGonder');
+  if (!soru || !k) return;
+  const terimler = [...new Set(kucuk(soru).split(/[^\p{L}\p{N}]+/u).filter((t) => t.length >= 3))].slice(0, 8);
+  dugme.disabled = true; dugme.textContent = 'Aranıyor…'; cevap.hidden = true;
+  try {
+    const { data, error } = await sb.from('ekip_mesaj').select('yazar_ad, metin, dosya, olusma').eq('kanal', k).eq('silindi', false)
+      .order('olusma', { ascending: false }).limit(1000);
+    if (error) throw error;
+    const kok = (t) => t.length > 5 ? t.slice(0, 5) : t; // Türkçe ekler için kaba kök
+    const puan = (m) => { const h = kucuk(m.metin + ' ' + ((m.dosya && m.dosya.konusma) || '')); return terimler.filter((t) => h.includes(kok(t))).length; };
+    const alinti = (m) => {
+      const h = m.dosya && m.dosya.konusma, t0 = terimler.map((t) => h ? kucuk(h).indexOf(kok(t)) : -1).filter((i) => i >= 0)[0];
+      const ek = h && t0 !== undefined ? `\n  [kayıt konuşması: …${h.slice(Math.max(0, t0 - 300), t0 + 500).replace(/\n/g, ' / ')}…]` : '';
+      return `[${new Date(m.olusma).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}] ${m.yazar_ad}: ${String(m.metin || '').slice(0, 500)}${ek}`;
+    };
+    const ilgili = data.map((m) => [puan(m), m]).filter(([p]) => p > 0).sort((a, b) => b[0] - a[0]).slice(0, 80).map(([, m]) => m);
+    const secili = new Set([...ilgili, ...data.slice(0, 30)]);
+    const metin = data.filter((m) => secili.has(m)).reverse().map(alinti).join('\n');
+    if (!metin) throw new Error('Bu kanalda taranacak mesaj yok');
+    dugme.textContent = 'Claude yanıtlıyor…';
+    const { cevap: y } = await betikIstegi({ islem: 'sor', soru, metin, konu: kanalBasligi(k) });
+    cevap.textContent = y; cevap.hidden = false;
+  } catch (e) { cevap.textContent = 'Yanıt alınamadı: ' + (e.message || e); cevap.hidden = false; }
+  dugme.disabled = false; dugme.textContent = 'Sor';
 }
 
 // ---------- kaçırdıklarım: son okumadan sonra başkalarının yazdıkları Claude ile özetlenir (yalnız sana görünür) ----------
@@ -4232,6 +4278,9 @@ function cagriDugmeleriniBagla() {
     dosyalariCiz();
   };
   $('dosyaAra').oninput = dosyalariCiz;
+  $('sorDugme').onclick = () => { if (YEREL || !DOSYA_URL) { $('uyari').textContent = 'Kanal hafızası için ERP girişi gerekir.'; return; } $('sorCevap').hidden = true; $('sorPenceresi').showModal(); $('sorMetin').focus(); };
+  $('sorGonder').onclick = kanalaSor;
+  $('sorMetin').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); kanalaSor(); } };
   $('altyaziDugme').onclick = () => altyaziAcKapa(!durum.cagri.altyazi, true);
   $('dokumDugme').onclick = dokumKaydet;
   $('tahtaDugme').onclick = () => tahtaAcKapa(!durum.cagri.tahta, true);
