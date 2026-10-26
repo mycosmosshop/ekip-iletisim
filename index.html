@@ -286,8 +286,13 @@
   .soru .alt button { padding: 2px 9px; font-size: 12px; }
 
   /* ---- görüşme düğme çubuğu ---- */
-  #cagriCubugu { display: none; gap: 8px; justify-content: center; align-items: center; flex-wrap: wrap; padding: 10px 12px 14px; background: var(--sahne); }
-  #cagriCubugu.acik { display: flex; }
+  #cagriCubugu { display: none; gap: 8px; justify-content: center; align-items: center; flex-wrap: wrap; padding: 10px 12px 14px; background: var(--sahne); position: relative; }
+  /* Mikrofon kapalıyken konuşunca: çubuğun hemen üstünde, mikrofon düğmesine yakın balon */
+  #sessizUyari { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 5; display: flex; gap: 8px; align-items: center;
+                 padding: 7px 8px 7px 14px; border-radius: 12px; background: var(--sari); color: var(--murekkep); font-weight: 600; font-size: 14px;
+                 box-shadow: 0 6px 20px rgb(8 20 24 / .35); width: max-content; max-width: calc(100% - 16px); box-sizing: border-box; }
+  #sessizUyari button { padding: 4px 12px; font-size: 13px; }
+  #sessizUyari button.kapat { padding: 4px 8px; background: transparent; border-color: transparent; color: var(--murekkep); }  #cagriCubugu.acik { display: flex; }
   #sure.az { color: var(--sari); }
   #sure { color: var(--murekkep-soluk); font: 600 14px/1 var(--yazi-baslik); font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; margin-right: 6px; }
   #cagriCubugu > button { position: relative; width: 46px; height: 46px; padding: 0; justify-content: center; border: 0; background: var(--sahne-2); color: #e6efed; }
@@ -489,6 +494,7 @@
     </div>
     <div id="altyazi" hidden aria-live="polite"></div>
     <div id="cagriCubugu">
+      <div id="sessizUyari" hidden role="status"><span>🎙️ Mikrofonun kapalı, konuşuyor gibisin</span><button id="sessizAc" class="ana" title="Mikrofonu aç (Ctrl+D)">Aç</button><button id="sessizKapat" class="kapat" aria-label="Uyarıyı kapat" title="Bir dakika gösterme">✕</button></div>
       <span id="sure" title="Görüşme süresi"></span>
       <button id="mikDugme" aria-pressed="true" aria-label="Mikrofon" title="Mikrofon (Ctrl+D)"><i data-lucide="mic" class="acik"></i><i data-lucide="mic-off" class="kapali"></i></button>
       <button id="kamDugme" aria-pressed="true" aria-label="Kamera" title="Kamera (Ctrl+E)"><i data-lucide="video" class="acik"></i><i data-lucide="video-off" class="kapali"></i></button>
@@ -2101,11 +2107,12 @@ async function cagridanAyril(gecis) {
   $('tahtaDugme').setAttribute('aria-pressed', 'false');
   for (const id of [...c.esler.keys()]) esKapat(id);
   clearInterval(c.olcer); clearTimeout(c.altOdaSayac);
+  sessizKopyaBirak(c); $('sessizUyari').hidden = true;
   if (c.sfu) await c.sfu.oda.disconnect(false).catch(() => {}); // izleri kendimiz durdururuz
   arkaPlanDurdur();
   c.yerel.getTracks().forEach((t) => t.stop());
   [c.ekran, c.ekranSes, c.karisik].forEach((t) => t && t.stop());
-  if (c.sesCtx) c.sesCtx.close();
+  if (c.sesCtx && c.sesCtx.state !== 'closed') c.sesCtx.close().catch(() => {});
   if (c.anaCh) sb.removeChannel(c.anaCh);
   await sb.removeChannel(c.ch);
   durum.cagri = null;
@@ -2937,7 +2944,34 @@ function konusmayiOlc() {
     // kısa duraklamalarda çerçeve yanıp sönmesin diye 600 ms tutulur
     karo(id)?.classList.toggle('konusuyor', simdi - (c.konusma.get(id) || 0) < 600);
   }
+  sessizKonusmaDenetle();
   duzenUygula(); sureyiYaz();
+}
+
+// Mikrofon kapalıyken konuşan uyarılır (Teams/Meet'teki gibi). Kapalı iz sessizlik verdiği için ölçüm, yalnız bu
+// tarayıcıda kalan açık bir kopyadan yapılır; kopya hiçbir yere gönderilmez, mikrofon açılınca durdurulur.
+function sessizKopyaBirak(c) {
+  if (!c.sessiz) return;
+  c.sessiz.kaynak.disconnect(); c.sessiz.kopya.stop(); c.sessiz = null;
+}
+function sessizKonusmaDenetle() {
+  const c = durum.cagri, mik = c.yerel.getAudioTracks()[0], uyari = $('sessizUyari');
+  if (!mik || mik.enabled || mik.readyState !== 'live') { sessizKopyaBirak(c); uyari.hidden = true; return; }
+  if (!c.sessiz || c.sessiz.asil !== mik) { // ilk kez ya da mikrofon değişti
+    const susturma = c.sessiz ? c.sessiz.susturma : 0;
+    sessizKopyaBirak(c);
+    const kopya = mik.clone(); kopya.enabled = true;
+    const ctx = sesBaglami(), kaynak = ctx.createMediaStreamSource(new MediaStream([kopya])), analiz = ctx.createAnalyser();
+    analiz.fftSize = 512; kaynak.connect(analiz);
+    c.sessiz = { asil: mik, kopya, kaynak, analiz, veri: new Uint8Array(512), sesli: 0, susturma, gosterim: 0 };
+  }
+  const s = c.sessiz, simdi = Date.now();
+  s.analiz.getByteTimeDomainData(s.veri);
+  let top = 0; for (const v of s.veri) { const x = (v - 128) / 128; top += x * x; }
+  // Ortam gürültüsü uyarı açmasın: eşik konuşma vurgusunun 1,5 katı ve ~0,6 sn süren ses gerekir.
+  s.sesli = Math.sqrt(top / s.veri.length) > KONUSMA_ESIGI * 1.5 ? s.sesli + 1 : Math.max(0, s.sesli - 1);
+  if (s.sesli >= 4 && simdi > s.susturma) { uyari.hidden = false; s.gosterim = simdi; }
+  else if (!uyari.hidden && s.sesli === 0 && simdi - s.gosterim > 5000) uyari.hidden = true;
 }
 
 // ---------- el kaldırma (sıralı), tepkiler, görüşme sohbeti ----------
@@ -3763,6 +3797,8 @@ function cagriDugmeleriniBagla() {
   $('ayrilDugme').onclick = () => cagridanAyril();
   $('ekranDugme').onclick = ekranPaylas;
   $('mikDugme').onclick = (e) => izAcKapa('ses', e.currentTarget);
+  $('sessizAc').onclick = () => { $('sessizUyari').hidden = true; $('mikDugme').click(); };
+  $('sessizKapat').onclick = () => { $('sessizUyari').hidden = true; if (durum.cagri.sessiz) durum.cagri.sessiz.susturma = Date.now() + 60000; };
   $('kamDugme').onclick = (e) => izAcKapa('video', e.currentTarget);
   $('elDugme').onclick = elKaldir;
   $('tepkiler').onclick = (e) => { const d = e.target.closest('button'); if (d) tepkiGonder(d.dataset.emoji); };
