@@ -242,7 +242,19 @@
   .bekleme-kart span { color: var(--murekkep-soluk); font-size: 14px; max-width: 36ch; }
   .karo:fullscreen video { object-fit: contain; transform: none; }
   /* Sahnenin tek parlak öğesi: konuşanın çevresinde sünger sarısı */
-  .karo.konusuyor { box-shadow: 0 0 0 3px var(--sari), 0 0 26px rgb(242 190 46 / .4); }
+  .karo.konusuyor { box-shadow: 0 0 0 3px var(--sari), 0 0 26px rgb(242 190 46 / .4), 0 10px 28px rgb(0 0 0 / .35); }
+  /* Çerçeve kartlar: yumuşak köşe, ince iç çizgi, alt tarafta ad için gölge, kamera kapalıyken degrade arka plan */
+  #sahne { gap: 14px; padding: 16px; }
+  .karo { border-radius: 22px; box-shadow: 0 8px 24px rgb(0 0 0 / .32); transition: transform .18s ease, box-shadow .18s ease; }
+  .karo::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 1;
+                 box-shadow: inset 0 0 0 1px rgb(255 255 255 / .14); background: linear-gradient(to top, rgb(0 0 0 / .45), transparent 34%); }
+  .karo:hover { transform: translateY(-2px); box-shadow: 0 14px 32px rgb(0 0 0 / .42); }
+  .karo.kam-kapali .kamsiz { background: radial-gradient(circle at 30% 20%, var(--sahne-2), var(--video) 78%); }
+  .karo span.ad { z-index: 2; left: 12px; bottom: 12px; padding: 4px 12px; background: rgb(8 20 24 / .55); border: 1px solid rgb(255 255 255 / .12); }
+  .karo.konusuyor { transform: none; }
+  .karo.konusuyor::after { box-shadow: inset 0 0 0 2px rgb(242 190 46 / .55); }
+  #sahne[data-duzen="tahta"] .karo { border-radius: 14px; }
+  @media (prefers-reduced-motion: reduce) { .karo, .karo:hover { transition: none; transform: none; } }
   .karo .el { position: absolute; top: 8px; left: 8px; background: var(--sari); color: var(--murekkep); border-radius: 999px; padding: 2px 9px; font-size: 15px; font-weight: 700; }
   .karo .tepki { position: absolute; left: 50%; bottom: 18%; font-size: 46px; pointer-events: none; animation: ucus 2.2s ease-out forwards; }
   @keyframes ucus { from { transform: translate(-50%, 0) scale(.6); opacity: 0; } 15% { transform: translate(-50%, -10%) scale(1.1); opacity: 1; } to { transform: translate(-50%, -150%); opacity: 0; } }
