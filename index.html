@@ -347,6 +347,8 @@
   #onizleme strong { font: 700 20px/1.2 var(--yazi-baslik); }
   #onizlemeVideo { width: 100%; aspect-ratio: 16 / 9; background: var(--video); border-radius: 14px; transform: scaleX(-1); object-fit: cover; }
   #onizleme meter { width: 100%; }
+  #onizleme .cihaz-sec label { display: flex; gap: 6px; align-items: center; font-size: 13.5px; color: var(--soluk); flex: 1; min-width: 200px; }
+  #onizleme .cihaz-sec select { flex: 1; min-width: 0; padding: 5px 8px; }
   #onizleme [aria-pressed="false"] { background: var(--kirmizi); border-color: var(--kirmizi); color: #fff; }
   #kanalPenceresi { border: 0; border-radius: 18px; background: var(--panel); color: var(--yazi); padding: 22px; width: min(440px, 94vw); box-shadow: var(--golge); }
   #kanalPenceresi::backdrop { background: rgb(8 20 24 / .6); }
@@ -603,6 +605,11 @@
   <form method="dialog">
     <strong>Görüşmeye katılmadan önce</strong>
     <video id="onizlemeVideo" autoplay playsinline muted></video>
+    <div id="onKamUyari" class="hata" hidden role="alert"></div>
+    <div class="satir2 cihaz-sec">
+      <label>Kamera <select id="onKamSec"></select></label>
+      <label>Mikrofon <select id="onMikSec"></select></label>
+    </div>
     <div class="satir2">
       <button type="button" id="onMik" aria-pressed="true"><i data-lucide="mic"></i>Mikrofon</button>
       <button type="button" id="onKam" aria-pressed="true"><i data-lucide="video"></i>Kamera</button>
@@ -2970,21 +2977,75 @@ function panelDugmesi() {
 
 // ---------- katılmadan önce önizleme (Meet'teki "hazır mısın" ekranı) ----------
 async function onizlemeGoster(yerel) {
-  const d = $('onizleme'), mik = yerel.getAudioTracks()[0], kam = yerel.getVideoTracks()[0];
+  const d = $('onizleme'), mik = () => yerel.getAudioTracks()[0], kam = () => yerel.getVideoTracks()[0];
   $('onizlemeVideo').srcObject = yerel;
-  for (const [dugme, iz] of [[$('onMik'), mik], [$('onKam'), kam]]) {
-    dugme.disabled = !iz;
-    dugme.setAttribute('aria-pressed', String(!!iz && iz.enabled));
-    dugme.onclick = () => { iz.enabled = !iz.enabled; dugme.setAttribute('aria-pressed', String(iz.enabled)); };
-  }
+  const dugmeleriCiz = () => {
+    for (const [dugme, iz] of [[$('onMik'), mik()], [$('onKam'), kam()]]) {
+      dugme.disabled = !iz;
+      dugme.setAttribute('aria-pressed', String(!!iz && iz.enabled));
+      dugme.onclick = () => { iz.enabled = !iz.enabled; dugmeleriCiz(); kamDenetle(); };
+    }
+  };
+  // Kamera siyah görüntü veriyorsa (başka uygulama tutuyor ya da Windows Hello'nun kızılötesi kamerası seçili)
+  // sessizce boş arka plan gösterilmesin: ham kameradan birkaç kare ölçülür, hepsi karanlıksa uyarılır.
+  let denetim = 0;
+  const kamDenetle = async () => {
+    const n = ++denetim, iz = kam();
+    $('onKamUyari').hidden = true;
+    if (!iz || !iz.enabled) return;
+    const v = el('video'); v.muted = true; v.srcObject = new MediaStream([iz]); await v.play().catch(() => {});
+    const t = Object.assign(document.createElement('canvas'), { width: 32, height: 18 }).getContext('2d', { willReadFrequently: true });
+    let enParlak = 0;
+    for (let i = 0; i < 8 && n === denetim && d.open; i++) {
+      await new Promise((r) => setTimeout(r, 400));
+      if (v.readyState < 2) continue;
+      t.drawImage(v, 0, 0, 32, 18);
+      const p = t.getImageData(0, 0, 32, 18).data;
+      for (let j = 0; j < p.length; j += 4) enParlak = Math.max(enParlak, p[j], p[j + 1], p[j + 2]);
+      if (enParlak > 24) break;
+    }
+    v.srcObject = null;
+    if (n !== denetim || !d.open || !iz.enabled || enParlak > 24) return;
+    $('onKamUyari').hidden = false;
+    $('onKamUyari').textContent = '⚠️ Kamera görüntü vermiyor. Kamerayı başka bir uygulama (Edge\'de açık görüşme, Teams, Zoom) kullanıyor olabilir ' +
+      'ya da yanlış kamera seçili: aşağıdan başka kamerayı dene veya diğer uygulamayı kapatıp sayfayı yenile.';
+  };
+  // Kamera / mikrofon seçimi: tercih saklanır, görüşmede de bu cihaz kullanılır.
+  const cihazSec = async () => {
+    const liste = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+    for (const [secim, tur, iz, ad] of [['onKamSec', 'videoinput', kam(), 'Kamera'], ['onMikSec', 'audioinput', mik(), 'Mikrofon']]) {
+      const s = $(secim), simdiki = iz && iz.getSettings().deviceId;
+      s.replaceChildren(...liste.filter((c) => c.kind === tur).map((c, i) => {
+        const o = el('option', null, c.label || `${ad} ${i + 1}`); o.value = c.deviceId; o.selected = c.deviceId === simdiki; return o;
+      }));
+      if (!s.options.length) s.append(el('option', null, 'Bulunamadı'));
+      s.disabled = !liste.some((c) => c.kind === tur);
+    }
+  };
+  const cihazDegisti = async (anahtar, deviceId) => {
+    const tur = anahtar === 'mik' ? 'audio' : 'video', t = cihazTercihi(); t[anahtar] = deviceId;
+    localStorage.setItem('ekip_cihaz', JSON.stringify(t));
+    let yeni;
+    try { yeni = (await navigator.mediaDevices.getUserMedia({ [tur]: { ...(tur === 'audio' ? SES_AYAR : {}), deviceId: { exact: deviceId } } })).getTracks()[0]; }
+    catch (e) { $('onKamUyari').hidden = false; $('onKamUyari').textContent = `⚠️ Bu ${tur === 'audio' ? 'mikrofon' : 'kamera'} açılamadı: ${e.message}`; return; }
+    const eski = tur === 'audio' ? mik() : kam();
+    if (eski) { yeni.enabled = eski.enabled; yerel.removeTrack(eski); eski.stop(); }
+    yerel.addTrack(yeni);
+    dugmeleriCiz();
+    if (tur === 'audio') sesOlcerBagla(); else { arkaGoster(); kamDenetle(); }
+  };
+  $('onKamSec').onchange = (e) => cihazDegisti('kam', e.target.value);
+  $('onMikSec').onchange = (e) => cihazDegisti('mik', e.target.value);
+  dugmeleriCiz(); cihazSec();
   // Seçilen arka plan önizlemede canlı görünür (model ve fotoğraf görüşmede yeniden indirilmez).
   let onArka = null, onIstek = 0;
   const arkaGoster = async () => {
     const tur = localStorage.getItem('ekip_arka') || 'yok', isik = localStorage.getItem('ekip_isik') === '1', n = ++onIstek;
     arkaIsaretle(tur);
     let yeni = null;
-    if (kam && (tur !== 'yok' || isik)) {
-      try { yeni = await arkaIzi(kam, tur, null, isik); }
+    const kamIzi = kam();
+    if (kamIzi && (tur !== 'yok' || isik)) {
+      try { yeni = await arkaIzi(kamIzi, tur, null, isik); }
       catch (e) { $('onizlemeNot').textContent = 'Arka plan yüklenemedi: ' + e.message; }
     }
     if (n !== onIstek) return yeni && yeni.durdur();
@@ -2997,26 +3058,30 @@ async function onizlemeGoster(yerel) {
   $('onIsik').checked = localStorage.getItem('ekip_isik') === '1';
   $('onIsik').onchange = (e) => { localStorage.setItem('ekip_isik', e.target.checked ? '1' : '0'); arkaGoster(); };
   arkaGoster();
-  let ctx = null, olcer = 0; // mikrofon seviyesi: konuşunca çubuk dolar
-  if (mik) {
-    ctx = new AudioContext();
-    const a = ctx.createAnalyser(), v = new Uint8Array(512);
-    ctx.createMediaStreamSource(new MediaStream([mik])).connect(a);
-    olcer = setInterval(() => {
-      a.getByteTimeDomainData(v);
-      let t = 0; for (const x of v) t += ((x - 128) / 128) ** 2;
-      $('onSes').value = mik.enabled ? Math.min(1, Math.sqrt(t / v.length) * 6) : 0;
-    }, 100);
+  // Mikrofon seviyesi: konuşunca çubuk dolar; mikrofon değişince ölçer yeni cihaza bağlanır.
+  const ctx = new AudioContext(), a = ctx.createAnalyser(), ornek = new Uint8Array(512);
+  let kaynak = null;
+  function sesOlcerBagla() {
+    if (kaynak) kaynak.disconnect();
+    kaynak = mik() ? ctx.createMediaStreamSource(new MediaStream([mik()])) : null;
+    if (kaynak) kaynak.connect(a);
   }
+  sesOlcerBagla();
+  const olcer = setInterval(() => {
+    a.getByteTimeDomainData(ornek);
+    let t = 0; for (const x of ornek) t += ((x - 128) / 128) ** 2;
+    $('onSes').value = mik() && mik().enabled ? Math.min(1, Math.sqrt(t / ornek.length) * 6) : 0;
+  }, 100);
   d.returnValue = '';
   d.showModal();
+  kamDenetle(); // pencere açıkken ölçer
   // Gönderim anı doğrudan yakalanır: "close" olayı sekme çizilmezken (arka planda) gecikebiliyor.
   const secim = await new Promise((ok) => {
     d.querySelector('form').onsubmit = (e) => ok(e.submitter && e.submitter.value);
     d.onclose = () => ok(d.returnValue);
   });
   if (d.open) d.close();
-  clearInterval(olcer); if (ctx) ctx.close();
+  clearInterval(olcer); ctx.close(); denetim++;
   onIstek++; if (onArka) onArka.durdur();
   $('onizlemeVideo').srcObject = null;
   return secim === 'katil';
