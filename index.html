@@ -336,7 +336,15 @@
   #sahipMenu > button.tehlike { background: var(--kirmizi); color: #fff; justify-content: center; margin-top: 4px; }
   #dahaMenu label { display: flex; gap: 8px; align-items: center; font-size: 13.5px; padding: 4px 10px; }
   #dahaMenu select, #dahaMenu input[type="number"] { padding: 5px 8px; }
-  #kayitlarMenu:popover-open { display: grid; gap: 4px; position: fixed; inset: 64px 16px auto auto; margin: 0; width: min(380px, 92vw); max-height: 70vh; overflow: auto; }
+  #kayitlarMenu:popover-open { display: grid; gap: 6px; position: fixed; inset: 64px 16px auto auto; margin: 0; width: min(420px, 92vw); max-height: 74vh; overflow: auto; align-content: start; }
+  .dosya-filtre { display: flex; gap: 4px; flex-wrap: wrap; padding: 0 6px; }
+  .dosya-filtre button { padding: 3px 10px; font-size: 12.5px; }
+  .dosya-filtre button[aria-pressed="true"] { background: var(--murekkep); color: #fff; border-color: var(--murekkep); }
+  #dosyaAra { margin: 0 6px; padding: 6px 10px; }
+  .kayit-oge.dosya-satir { grid-template-columns: 44px 1fr; align-items: center; column-gap: 10px; }
+  .dosya-satir .simge { grid-row: span 2; width: 44px; height: 33px; border-radius: 6px; display: grid; place-items: center; background: var(--zemin); font-size: 18px; overflow: hidden; }
+  .dosya-satir .simge img { width: 100%; height: 100%; object-fit: cover; }
+  .dosya-satir b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
   #kayitlarMenu > b { font: 600 14.5px/1.2 var(--yazi-baslik); padding: 4px 10px 6px; }
   #kayitlarListe { display: grid; gap: 2px; }
   #kayitlarListe .bilgi { color: var(--soluk); font-size: 13px; padding: 4px 10px 8px; }
@@ -462,8 +470,11 @@
       <h1 id="kanalAdi"></h1>
       <span id="cagriBilgi"></span>
       <button id="uyeDugme" hidden title="Bu özel kanalın üyeleri"><i data-lucide="users"></i><span class="etiket">Üyeler</span></button>
-      <button id="kayitlarDugme" popovertarget="kayitlarMenu" title="Bu kanalın görüşme kayıtları (videolar Drive'da)"><i data-lucide="film"></i><span class="etiket">Kayıtlar</span></button>
-      <div id="kayitlarMenu" popover><b>Görüşme kayıtları</b><div id="kayitlarListe"></div></div>
+      <button id="kayitlarDugme" popovertarget="kayitlarMenu" title="Bu kanalda paylaşılan dosyalar, resimler, görüşme kayıtları ve sesli mesajlar (Drive'da)"><i data-lucide="folder-open"></i><span class="etiket">Dosyalar</span></button>
+      <div id="kayitlarMenu" popover><b>Kanal dosyaları</b>
+        <div class="dosya-filtre" role="group" aria-label="Dosya türü"><button data-f="hepsi" aria-pressed="true">Tümü</button><button data-f="resim">Resim</button><button data-f="belge">Belge</button><button data-f="kayit">Görüşme kaydı</button><button data-f="ses">Sesli mesaj</button></div>
+        <input id="dosyaAra" type="search" placeholder="Adıyla ya da gönderenle ara" aria-label="Dosya ara">
+        <div id="kayitlarListe"></div></div>
       <button id="planDugme" title="İleri tarihli toplantı oluştur, sohbete kartını gönder"><i data-lucide="calendar-plus"></i>Planla</button>
       <button id="baglantiDugme" title="Linke sahip olan herkes, ERP girişi olmadan bu görüşmeye katılabilir"><i data-lucide="link-2"></i><span class="etiket">Görüşme bağlantısı</span></button>
       <button id="cagriDugme" class="ana"><i data-lucide="video"></i><span class="etiket">Görüşme başlat</span></button>
@@ -2532,23 +2543,38 @@ async function kayitBaslat() {
   cagriDurumuYay(); kayitSeridiCiz();
 }
 
-// Kanalın görüşme kayıtları: videolar Drive'da durur, burada yalnız kayıt mesajlarındaki bağlantılar listelenir.
+// Kanal dosyaları: kanalda paylaşılan her şey (dosya, resim, görüşme kaydı, sesli mesaj). Dosyalar Drive'da durur;
+// liste, mesajlardaki bağlantılardan kurulur. Tür ve ad/gönderen süzgeci yalnız tarayıcıda uygulanır.
+const dosyaTuru = (d) => (d.ses ? 'ses' : /^Görüşme kaydı/.test(d.ad || '') ? 'kayit' : resimMi(d) ? 'resim' : 'belge');
+let dosyaListesi = { kanal: null, satirlar: [] };
 async function kayitlariGoster() {
   const kutu = $('kayitlarListe'), kanal = durum.aktif, bilgi = (metin) => kutu.replaceChildren(el('div', 'bilgi', metin));
-  if (!durum.tabloVar) return bilgi('Mesaj geçmişi kapalıyken liste tutulmaz; kayıtlar Drive’da “Ekip İletişim Dosyaları” klasöründe.');
+  if (!durum.tabloVar) return bilgi('Mesaj geçmişi kapalıyken liste tutulmaz; dosyalar Drive’da “Ekip İletişim Dosyaları” klasöründe.');
   bilgi('Yükleniyor…');
-  const { data, error } = await sb.from('ekip_mesaj').select('yazar_ad, metin, dosya, olusma').eq('kanal', kanal)
-    .like('dosya->>ad', 'Görüşme kaydı%').order('olusma', { ascending: false }).limit(100);
+  const { data, error } = await sb.from('ekip_mesaj').select('id, yazar_ad, metin, dosya, olusma').eq('kanal', kanal)
+    .not('dosya', 'is', null).eq('silindi', false).order('olusma', { ascending: false }).limit(300);
   if (kanal !== durum.aktif) return;
-  if (error) return bilgi('Kayıtlar okunamadı: ' + error.message);
-  if (!data.length) return bilgi('Bu kanalda henüz kayıt yok. Görüşmede ⋯ menüsündeki “Kaydet” ile başlar; video Drive’a yüklenir, bağlantısı buraya gelir.');
-  kutu.replaceChildren(...data.map((m) => {
-    const d = m.dosya, sure = Number(d.sure || (/\((\d+) dk\)/.exec(m.metin) || [])[1]) || 0;
-    const a = el('a', 'kayit-oge');
+  if (error) return bilgi('Dosyalar okunamadı: ' + error.message);
+  dosyaListesi = { kanal, satirlar: data.filter((m) => m.dosya && m.dosya.url) };
+  dosyalariCiz();
+}
+function dosyalariCiz() {
+  const kutu = $('kayitlarListe'), f = $('kayitlarMenu').querySelector('.dosya-filtre [aria-pressed="true"]').dataset.f, ara = kucuk($('dosyaAra').value.trim());
+  const liste = dosyaListesi.satirlar.filter((m) => (f === 'hepsi' || dosyaTuru(m.dosya) === f) && (!ara || kucuk(m.dosya.ad + ' ' + m.yazar_ad + ' ' + m.metin).includes(ara)));
+  if (!liste.length) {
+    return kutu.replaceChildren(el('div', 'bilgi', dosyaListesi.satirlar.length ? 'Bu süzgece uyan dosya yok.'
+      : 'Bu kanalda henüz dosya yok. 📎 ile dosya, 🎤 ile sesli mesaj gönderilir; görüşme kayıtları da buraya gelir.'));
+  }
+  kutu.replaceChildren(...liste.map((m) => {
+    const d = m.dosya, tur = dosyaTuru(d), a = el('a', 'kayit-oge dosya-satir'), simge = el('span', 'simge');
     a.href = d.url; a.target = '_blank'; a.rel = 'noopener'; a.title = d.ad + ' (Drive’da açılır)';
-    const bas = new Date(zaman(m.olusma) - sure * 60000); // mesaj kayıt bitince yazılır
-    a.append(el('b', null, '▶ ' + bas.toLocaleString('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })),
-             el('span', null, [sure && sure + ' dk', d.boyut && boyutYaz(d.boyut), m.yazar_ad].filter(Boolean).join(' · ')));
+    const id = (/\/d\/([-\w]{20,})/.exec(d.url) || [])[1];
+    if (tur === 'resim' && id) { const i = el('img'); i.src = `https://drive.google.com/thumbnail?id=${id}&sz=w120`; i.alt = ''; i.loading = 'lazy'; i.onerror = () => { simge.textContent = '🖼️'; }; simge.append(i); }
+    else simge.textContent = { kayit: '▶', ses: '🎤', belge: '📄', resim: '🖼️' }[tur];
+    const sure = Number(d.sure || (/\((\d+) dk\)/.exec(m.metin) || [])[1]) || 0;
+    const ad = tur === 'kayit' ? 'Görüşme kaydı · ' + new Date(zaman(m.olusma) - sure * 60000).toLocaleString('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })
+      : tur === 'ses' ? 'Sesli mesaj · ' + mmss(sure) + (m.metin.length > 3 ? ' · ' + m.metin.replace(/^🎤\s*/u, '').slice(0, 40) : '') : d.ad;
+    a.append(simge, el('b', null, ad), el('span', null, [tarihYaz(m.olusma), tur === 'kayit' && sure && sure + ' dk', d.boyut && boyutYaz(d.boyut), m.yazar_ad].filter(Boolean).join(' · ')));
     return a;
   }));
 }
@@ -4144,6 +4170,12 @@ function cagriDugmeleriniBagla() {
   $('kayitDugme').onclick = () => (durum.cagri.kayit ? kayitDurdur() : kayitBaslat());
   $('secSure').onchange = (e) => { durum.cagri.sureDk = Number(e.target.value); cagriDurumuYay(); sureyiYaz(); };
   $('kayitlarMenu').addEventListener('toggle', (e) => { if (e.newState === 'open') kayitlariGoster(); });
+  $('kayitlarMenu').querySelector('.dosya-filtre').onclick = (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    b.parentElement.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    dosyalariCiz();
+  };
+  $('dosyaAra').oninput = dosyalariCiz;
   $('altyaziDugme').onclick = () => altyaziAcKapa(!durum.cagri.altyazi, true);
   $('dokumDugme').onclick = dokumKaydet;
   $('tahtaDugme').onclick = () => tahtaAcKapa(!durum.cagri.tahta, true);
