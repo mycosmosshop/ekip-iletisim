@@ -1607,9 +1607,25 @@ async function yerelAkisAl() {
   const ses = { ...SES_AYAR, ...(t.mik ? { deviceId: { ideal: t.mik } } : {}) };
   const goruntu = t.kam ? { deviceId: { ideal: t.kam } } : true;
   for (const k of [{ audio: ses, video: goruntu }, { audio: ses }, { video: goruntu }]) {
-    try { return await navigator.mediaDevices.getUserMedia(k); } catch (e) { /* sıradaki seçenek */ }
+    try { return await sanalKameradanKac(await navigator.mediaDevices.getUserMedia(k), t); } catch (e) { /* sıradaki seçenek */ }
   }
   return new MediaStream(); // cihaz/izin yoksa yalnız izleyici olarak katılır
+}
+
+// Tercih yokken tarayıcı ekran kayıt programının sanal kamerasını seçebiliyor (kullanıcının Chrome'unda
+// "screen-capture-recorder" kişinin yerine program simgelerini gösterdi): varsa gerçek kameraya geçilir.
+const SANAL_KAMERA = /screen-capture|virtual|obs |obs-|snap camera|manycam|xsplit|splitcam|droidcam|ndi/i;
+async function sanalKameradanKac(akis, tercih) {
+  const kam = akis.getVideoTracks()[0];
+  if (tercih.kam || !kam || !SANAL_KAMERA.test(kam.label)) return akis;
+  const gercek = (await navigator.mediaDevices.enumerateDevices().catch(() => []))
+    .find((c) => c.kind === 'videoinput' && c.label && !SANAL_KAMERA.test(c.label));
+  if (!gercek) return akis;
+  try {
+    const yeni = (await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: gercek.deviceId } } })).getVideoTracks()[0];
+    akis.removeTrack(kam); kam.stop(); akis.addTrack(yeni);
+  } catch (e) { /* gerçek kamera meşgulse sanal kalır; önizlemedeki uyarı ve seçim listesi yol gösterir */ }
+  return akis;
 }
 
 function karoEkle(id, ad, akis, ben) {
@@ -2609,7 +2625,8 @@ function videoyuYenile() {
   if (c.sfu) sfuYayinla();
   const benKaro = karo(durum.ben.id);
   benKaro.classList.toggle('ekran', !!c.ekran);
-  benKaro.querySelector('video').srcObject = c.ekran ? new MediaStream([c.ekran]) : c.arka ? new MediaStream([c.arka.iz]) : c.yerel;
+  // Her seferinde yeni MediaStream: aynı akışa sonradan eklenen kamera izi (cihaz değişince) video öğesinde siyah/kesik kalabiliyor.
+  benKaro.querySelector('video').srcObject = new MediaStream(c.ekran ? [c.ekran] : c.arka ? [c.arka.iz] : c.yerel.getVideoTracks());
 }
 
 // ---------- arka plan bulanıklaştırma / değiştirme (MediaPipe, tamamen tarayıcıda) ----------
@@ -3051,7 +3068,7 @@ async function onizlemeGoster(yerel) {
     if (n !== onIstek) return yeni && yeni.durdur();
     if (onArka) onArka.durdur();
     onArka = yeni;
-    $('onizlemeVideo').srcObject = yeni ? new MediaStream([yeni.iz]) : yerel;
+    $('onizlemeVideo').srcObject = new MediaStream(yeni ? [yeni.iz] : yerel.getVideoTracks()); // yeni akış: değişen kamera izi takılmasın
   };
   $('onizlemeNot').textContent = '';
   arkaIzgarasi($('onArka'), (tur) => { localStorage.setItem('ekip_arka', tur); arkaGoster(); });
