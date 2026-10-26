@@ -382,7 +382,7 @@
   #cihazPanel { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; align-items: center; padding: 0 12px 12px; background: var(--sahne); color: #e6efed; font-size: 13.5px; }
   #cihazPanel select { max-width: 230px; margin-left: 6px; padding: 6px 8px; background: var(--sahne-2); color: #e6efed; border-color: transparent; }
   /* Arka plan seçimi: Meet/Teams'teki gibi küçük resimli ızgara */
-  .arka-izgara { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
+  .arka-izgara { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; max-height: 34vh; overflow-y: auto; padding: 2px; }
   #cihazPanel .arka-izgara { flex-basis: 100%; max-width: 820px; }
   .arka-izgara button { aspect-ratio: 16 / 9; padding: 2px; justify-content: center; text-align: center; border: 2px solid transparent; border-radius: 9px;
                         background: #24434d center / cover no-repeat; color: #e6efed; font-size: 11.5px; line-height: 1.15; }
@@ -3031,6 +3031,15 @@ const ARKA_FOTO = {
   kapadokya: ['Kapadokya', '1627933577672-d191b77baa9c'], sehir: ['Şehir', '1625726411847-8cbb60cc71e6'],
   sonbahar: ['Sonbahar', '1507371341162-763b5e419408'], karliDag: ['Karlı dağ', '1483921020237-2ff51e8e4b22'],
   zen: ['Zen bahçesi', '1786779503813-f6490d8801db'], bokeh: ['Işık bokeh', '1519751138087-5bf79df62d5b'],
+  // Karşıdan, paralel bakışlı oturma düzenine uygun dış mekân sahneleri
+  havuzluBahce: ['Havuzlu bahçe', '1416331108676-a22ccb276e35'], villaHavuz: ['Villa havuzu', '1668585418189-451e19895b53'],
+  villaHavuz2: ['Villa havuzu (gün)', '1711114378532-bab7d55311f3'], sonsuzHavuz: ['Sonsuzluk havuzu', '1580953547278-d82ab571003b'],
+  havuzDeniz: ['Havuz ve deniz', '1707075108813-edefd7b3308d'], yelkenli: ['Yelkenli', '1792001665205-ee795ec8467b'],
+  yelkenliKapi: ['Yelkenli (pencere)', '1790563924031-1eb4ad5357f3'], acikDeniz: ['Açık deniz', '1780299281364-7e050cdce74f'],
+  yatGuverte: ['Yat güvertesi', '1737061255758-29f7593039e2'], yatSalon: ['Yat salonu', '1697124510322-27ef594f67fd'],
+  yatAcik: ['Yat terası', '1722032259251-91cc9365b349'], malikane: ['Malikane verandası', '1720706439286-a642d2cd0db2'],
+  verandaCicek: ['Çiçekli veranda', '1754597215918-b4b1f113ca77'], arkaBahce: ['Arka bahçe', '1719324924230-63781a3f18b9'],
+  arkaBahce2: ['Bahçe oturma alanı', '1715090576114-c07384af2069'], isikliBahce: ['Işıklı bahçe (akşam)', '1790090930508-8ac513c6a1c6'],
 };
 const fotoAdresi = (k, w, h) => `https://images.unsplash.com/photo-${ARKA_FOTO[k][1]}?auto=format&fit=crop&w=${w}&h=${h}&q=80`;
 const BULANIK = { hafif: 8, bulanik: 20 }; // px, 640 genişlikte; büyük kamerada orantılı artar
