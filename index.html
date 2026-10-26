@@ -174,6 +174,19 @@
   #yazma #metin:focus-visible { outline: none; }
   #dosyaDugme { border: 0; background: transparent; padding: 8px; color: var(--soluk); }
   #dosyaDugme:hover { color: var(--vurgu); background: var(--vurgu-acik); }
+  #sesDugme { border: 0; background: transparent; padding: 8px; color: var(--soluk); }
+  #sesDugme:hover { color: var(--vurgu); background: var(--vurgu-acik); }
+  /* Sesli mesaj kaydı: yazma kutusunun üstünde şerit; konuşma canlı yazıya dökülür */
+  #sesKayit { display: flex; gap: 10px; align-items: center; margin: 0 20px 6px; padding: 8px 8px 8px 14px; border-radius: 14px; background: var(--sari-acik); font-size: 14px; }
+  #sesKayit .nokta { width: 10px; height: 10px; border-radius: 50%; background: var(--kirmizi); animation: sesNabiz 1.2s ease-in-out infinite; flex: none; }
+  @keyframes sesNabiz { 50% { opacity: .3; } }
+  @media (prefers-reduced-motion: reduce) { #sesKayit .nokta { animation: none; } }
+  #sesKayit b { font-variant-numeric: tabular-nums; }
+  #sesYazi { flex: 1; min-width: 0; color: var(--soluk); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
+  #sesKayit button { padding: 5px 12px; }
+  .sesli-mesaj { display: grid; gap: 4px; margin-top: 4px; max-width: min(420px, 100%); }
+  .sesli-mesaj audio { width: 100%; height: 38px; }
+  .sesli-mesaj .yazi { font-size: 13.5px; color: var(--soluk); font-style: italic; white-space: pre-wrap; }
   #uyari { font-size: 12.5px; color: var(--soluk); padding: 0 24px 10px; }
   #uyari:empty { padding-bottom: 6px; }
 
@@ -560,8 +573,10 @@
     <div id="oneriler" hidden></div>
     <div id="yaziyor" aria-live="polite"></div>
     <div id="yanitSeridi" hidden><span id="yanitMetin"></span><button type="button" id="yanitIptal" aria-label="Yanıtı iptal et">✕</button></div>
+    <div id="sesKayit" hidden role="status"><span class="nokta"></span><b id="sesSure">0:00</b><span id="sesYazi">Konuş…</span><button type="button" id="sesGonder" class="ana">Gönder</button><button type="button" id="sesIptal">İptal</button></div>
     <form id="yazma">
       <button type="button" id="dosyaDugme" title="Dosya gönder (Drive, en fazla 2 GB)" aria-label="Dosya gönder"><i data-lucide="paperclip"></i></button>
+      <button type="button" id="sesDugme" title="Sesli mesaj (en fazla 3 dakika; yazıya da dökülür)" aria-label="Sesli mesaj kaydet"><i data-lucide="mic"></i></button>
       <input type="file" id="dosyaSec" multiple hidden>
       <input id="metin" placeholder="Mesaj yaz…" autocomplete="off" maxlength="4000">
       <button class="ana"><i data-lucide="send-horizontal"></i>Gönder</button>
@@ -1337,6 +1352,7 @@ function mesajCiz(m, benimSon, onceki) {
       if (yeni && yeni !== m.metin) mesajDegistir(m, { metin: yeni }); else mesajlariCiz();
     }));
   } else if (m.toplanti) d.append(toplantiKarti(m.toplanti));
+  else if (m.dosya && m.dosya.ses && /^https:\/\/drive\.google\.com\//.test(m.dosya.url)) d.append(sesliMesajOgesi(m));
   else if (m.dosya && /^https:\/\/drive\.google\.com\//.test(m.dosya.url)) d.append(dosyaOgesi(m.dosya));
   else d.append(metniCiz(m.metin));
   if (!m.silindi && /^(📝 Toplantı notu|✨ Toplantı özeti)/u.test(m.metin || '')) {
@@ -1371,6 +1387,78 @@ function mesajCiz(m, benimSon, onceki) {
 
 // Resim sohbette küçük önizlemeyle görünür (Drive'ın küçük resim adresi, dosya bağlantıyla paylaşıldığı için açık);
 // önizleme açılmazsa dosya bağlantısına döner.
+// ---------- sesli mesaj ----------
+// Ses Opus olarak kaydedilir ve Drive'a gider; konuşma aynı anda tarayıcının tanımasıyla yazıya dökülür ve mesajın
+// metni olur (aranır, bildirimde ve "kaçırdıklarım" özetinde okunur). Drive bağlantısı <audio> ile oynatılır.
+const SES_EN_COK = 180; // sn
+function sesliMesajOgesi(m) {
+  const f = m.dosya, kutu = el('div', 'sesli-mesaj'), id = (/\/d\/([-\w]{20,})/.exec(f.url) || [])[1];
+  const ses = el('audio'); ses.controls = true; ses.preload = 'none';
+  ses.src = id ? `https://drive.google.com/uc?export=download&id=${id}` : f.url;
+  ses.onerror = () => { const a = el('a', 'dosya', `🎤 Sesli mesaj · ${mmss(f.sure || 0)} (Drive'da aç)`); a.href = f.url; a.target = '_blank'; a.rel = 'noopener'; ses.replaceWith(a); };
+  kutu.append(ses);
+  const yazi = String(m.metin || '').replace(/^🎤\s*/u, '').replace(/^Sesli mesaj$/, '');
+  if (yazi) kutu.append(el('div', 'yazi', '“' + yazi + '”'));
+  return kutu;
+}
+
+async function sesKaydiBaslat() {
+  if (durum.sesKayit) return;
+  if (!DOSYA_URL || YEREL) { $('uyari').textContent = 'Sesli mesaj Drive\'a yüklenir; yerel denemede yok.'; return; }
+  let akis;
+  try { akis = await navigator.mediaDevices.getUserMedia({ audio: { ...SES_AYAR, ...(cihazTercihi().mik ? { deviceId: { ideal: cihazTercihi().mik } } : {}) } }); }
+  catch (e) { $('uyari').textContent = 'Mikrofon açılamadı: ' + e.message; return; }
+  const tur = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find((t) => MediaRecorder.isTypeSupported(t)) || '';
+  const k = { akis, parcalar: [], bas: Date.now(), yazi: [], ara: '', kanal: durum.aktif,
+              kaydedici: new MediaRecorder(akis, { mimeType: tur, audioBitsPerSecond: 32000 }) };
+  k.kaydedici.ondataavailable = (e) => { if (e.data.size) k.parcalar.push(e.data); };
+  k.kaydedici.start(1000);
+  if (KonusmaTanima) { // yazıya dökme: tarayıcı servisi; desteklenmezse yalnız ses gider
+    const r = new KonusmaTanima(); r.lang = 'tr-TR'; r.continuous = true; r.interimResults = true;
+    r.onresult = (e) => {
+      k.ara = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) k.yazi.push(e.results[i][0].transcript.trim()); else k.ara += e.results[i][0].transcript;
+      }
+      $('sesYazi').textContent = (k.yazi.join(' ') + ' ' + k.ara).trim().slice(-120) || 'Konuş…';
+    };
+    r.onend = () => { if (durum.sesKayit === k) try { r.start(); } catch (e) { /* zaten çalışıyor */ } };
+    try { r.start(); } catch (e) { /* tanıma yok */ }
+    k.tanima = r;
+  }
+  k.saat = setInterval(() => {
+    const sn = Math.floor((Date.now() - k.bas) / 1000);
+    $('sesSure').textContent = mmss(sn);
+    if (sn >= SES_EN_COK) sesKaydiBitir(true);
+  }, 250);
+  durum.sesKayit = k;
+  $('sesYazi').textContent = 'Konuş…'; $('sesSure').textContent = '0:00';
+  $('sesKayit').hidden = false; $('sesDugme').disabled = true;
+}
+
+async function sesKaydiBitir(gonder_) {
+  const k = durum.sesKayit;
+  if (!k) return;
+  durum.sesKayit = null;
+  clearInterval(k.saat);
+  if (k.tanima) { try { k.tanima.stop(); } catch (e) { /* */ } }
+  await new Promise((ok) => { k.kaydedici.onstop = ok; k.kaydedici.stop(); });
+  k.akis.getTracks().forEach((t) => t.stop());
+  $('sesKayit').hidden = true; $('sesDugme').disabled = false;
+  const sure = Math.round((Date.now() - k.bas) / 1000);
+  if (!gonder_ || sure < 1) return;
+  // Son ara sonuç da eklenir (tanıma "bitti" demeden durdurulmuş olabilir)
+  const yazi = (k.yazi.join(' ') + ' ' + k.ara).replace(/\s+/g, ' ').trim().slice(0, 3800);
+  const tur = (k.kaydedici.mimeType || 'audio/webm').split(';')[0], blob = new Blob(k.parcalar, { type: tur });
+  const ad = `Sesli mesaj ${new Date().toLocaleString('tr-TR').replace(/[/:]/g, '-')}.${tur === 'audio/mp4' ? 'm4a' : 'webm'}`;
+  $('uyari').textContent = '🎤 Sesli mesaj gönderiliyor…';
+  try {
+    const j = await betikIstegi({ ad, tur, veri: await blobBase64(blob), kanal: k.kanal });
+    await gonder(yazi ? '🎤 ' + yazi : '🎤 Sesli mesaj', { ad, url: j.url, boyut: j.boyut, tur, sure, ses: true }, { kanal: k.kanal });
+    $('uyari').textContent = '';
+  } catch (e) { $('uyari').textContent = 'Sesli mesaj gönderilemedi: ' + e.message; }
+}
+
 const resimMi = (f) => /^image\//.test(f.tur || '') || /\.(png|jpe?g|gif|webp|bmp|heic|heif)$/i.test(f.ad || '');
 function dosyaOgesi(f) {
   const bag = () => { const a = el('a', 'dosya', `📎 ${f.ad} · ${boyutYaz(f.boyut)}`); a.href = f.url; a.target = '_blank'; a.rel = 'noopener'; return a; };
@@ -1627,7 +1715,7 @@ const uygulamaAdresi = (k, katil) => location.origin + location.pathname + '?kan
 
 // Birebir mesaj karşı tarafa, kanal mesajı yalnız @bahsedilenlere bildirim olarak gider.
 async function mesajBildirimi(m) {
-  const ozet = m.dosya ? '📎 ' + m.dosya.ad : String(m.metin).slice(0, 200);
+  const ozet = m.dosya && !m.dosya.ses ? '📎 ' + m.dosya.ad : String(m.metin).slice(0, 200);
   if (m.kanal.startsWith('dm:')) return pushGonder({ kanal: m.kanal, kisiler: [karsiTaraf(m.kanal)], baslik: durum.ben.ad, govde: ozet, url: uygulamaAdresi(m.kanal), etiket: 'm-' + m.kanal });
   if (!m.metin || !m.metin.includes('@')) return;
   const metin = kucuk(m.metin);
@@ -4182,6 +4270,9 @@ async function basla() {
   $('dosyaDugme').hidden = !DOSYA_URL || YEREL;
   if (DOSYA_URL && !YEREL) $('metin').placeholder = 'Mesaj yaz… Resim ya da dosyayı yapıştırabilir veya sürükleyebilirsin';
   $('dosyaDugme').onclick = () => $('dosyaSec').click();
+  $('sesDugme').onclick = sesKaydiBaslat;
+  $('sesGonder').onclick = () => sesKaydiBitir(true);
+  $('sesIptal').onclick = () => sesKaydiBitir(false);
   $('dosyaSec').onchange = (e) => { const f = [...e.target.files]; e.target.value = ''; dosyalariGonder(f); };
   bildirimDugmesi();
   // Chrome/Edge kurulabilir olduğunu bildirince düğme çıkar; iPhone'da Safari → Paylaş → Ana Ekrana Ekle.
