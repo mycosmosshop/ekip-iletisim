@@ -1606,10 +1606,43 @@ async function yerelAkisAl() {
   const t = cihazTercihi();
   const ses = { ...SES_AYAR, ...(t.mik ? { deviceId: { ideal: t.mik } } : {}) };
   const goruntu = t.kam ? { deviceId: { ideal: t.kam } } : true;
-  for (const k of [{ audio: ses, video: goruntu }, { audio: ses }, { video: goruntu }]) {
-    try { return await sanalKameradanKac(await navigator.mediaDevices.getUserMedia(k), t); } catch (e) { /* sıradaki seçenek */ }
+  try { return await sanalKameradanKac(await navigator.mediaDevices.getUserMedia({ audio: ses, video: goruntu }), t); } catch (e) { /* aşağıda */ }
+  // Varsayılan kamera açılamadıysa (kullanıcının Lenovo'sunda LSVCam "Could not start video source" verdi ve
+  // görüşme kamerasız açılıyordu) diğer kameralar gerçekler önce olmak üzere tek tek denenir.
+  const kameralar = (await navigator.mediaDevices.enumerateDevices().catch(() => []))
+    .filter((c) => c.kind === 'videoinput' && c.deviceId).sort((a, b) => SANAL_KAMERA.test(a.label) - SANAL_KAMERA.test(b.label));
+  for (const k of kameralar) {
+    try { return await navigator.mediaDevices.getUserMedia({ audio: ses, video: { deviceId: { exact: k.deviceId } } }); } catch (e) { /* sıradaki */ }
+  }
+  for (const k of [{ audio: ses }, { video: goruntu }]) {
+    try { return await navigator.mediaDevices.getUserMedia(k); } catch (e) { /* sıradaki seçenek */ }
   }
   return new MediaStream(); // cihaz/izin yoksa yalnız izleyici olarak katılır
+}
+
+// Kamera izi kendiliğinden biterse (Chrome'da başka bir program, ör. Lenovo LSVCam, donanımı alınca görüldü:
+// görüntü açılıp birkaç saniye sonra siyaha dönüyordu) aynı kamera kısa aralıklarla yeniden açılır.
+// track.stop() 'ended' olayı üretmez; yalnız beklenmeyen kesilmede çalışır.
+function kamerayiKoru(akis, yenilendi) {
+  const iz = akis.getVideoTracks()[0];
+  if (!iz) return;
+  iz.yenilendi = yenilendi; // önizlemeden görüşmeye geçen iz için son kayıt geçerli
+  if (iz.korunuyor) return;
+  iz.korunuyor = true;
+  iz.addEventListener('ended', async () => {
+    const id = iz.getSettings().deviceId;
+    for (let i = 1; i <= 5; i++) {
+      await new Promise((r) => setTimeout(r, 700 * i));
+      if (!akis.getVideoTracks().includes(iz)) return; // bu arada kamera değiştirildi ya da görüşme bitti
+      try {
+        const yeni = (await navigator.mediaDevices.getUserMedia({ video: id ? { deviceId: { exact: id } } : true })).getVideoTracks()[0];
+        yeni.enabled = iz.enabled;
+        akis.removeTrack(iz); akis.addTrack(yeni);
+        return iz.yenilendi();
+      } catch (e) { /* kamera hâlâ meşgul: biraz sonra yeniden */ }
+    }
+    $('uyari').textContent = '⚠️ Kamera bağlantısı koptu ve yeniden açılamadı; kamerayı başka bir program kullanıyor olabilir.';
+  });
 }
 
 // Tercih yokken tarayıcı ekran kayıt programının sanal kamerasını seçebiliyor (kullanıcının Chrome'unda
@@ -1959,6 +1992,13 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
                   anketler: new Map(), sorular: new Map(), aktarilan: new Set(), sfu: null, sfuDenendi: false, duzen: localStorage.getItem('ekip_duzen') || 'oto', ceviri: '',
                   katilim: ayar.katilim || new Map([[durum.ben.id, { ad: durum.ben.ad, erp: !durum.ben.konuk, giris: new Date().toISOString(), cikis: null }]]) };
   const c = durum.cagri;
+  const kamYenilendi = () => {
+    if (durum.cagri !== c) return;
+    if (c.arka) arkaPlanAyarla(c.arka.tur, c.arka.resim); else videoyuYenile();
+    mikKamDugmeleri(); kamerayiKoru(c.yerel, kamYenilendi);
+  };
+  kamerayiKoru(yerel, kamYenilendi);
+  c.kamYenilendi = kamYenilendi;
   // İçerik olayları yalnız içeri alınmışken işlenir: bekleme salonundaki misafir sohbeti, anketi, altyazıyı görmez.
   // Kişiye özel olaylar (rtc, komut, aktar, tahta-tum) kendi denetimini yapar.
   const icerik = (olay, fn) => ch.on('broadcast', { event: olay }, ({ payload }) => { if (izinli(durum.ben.id, { erp: c.erp })) fn(payload); });
@@ -3049,11 +3089,13 @@ async function onizlemeGoster(yerel) {
     if (eski) { yeni.enabled = eski.enabled; yerel.removeTrack(eski); eski.stop(); }
     yerel.addTrack(yeni);
     dugmeleriCiz();
-    if (tur === 'audio') sesOlcerBagla(); else { arkaGoster(); kamDenetle(); }
+    if (tur === 'audio') sesOlcerBagla(); else { kamerayiKoru(yerel, onKamYenilendi); arkaGoster(); kamDenetle(); }
   };
   $('onKamSec').onchange = (e) => cihazDegisti('kam', e.target.value);
   $('onMikSec').onchange = (e) => cihazDegisti('mik', e.target.value);
   dugmeleriCiz(); cihazSec();
+  const onKamYenilendi = () => { if (!d.open) return; dugmeleriCiz(); arkaGoster(); kamDenetle(); kamerayiKoru(yerel, onKamYenilendi); };
+  kamerayiKoru(yerel, onKamYenilendi);
   // Seçilen arka plan önizlemede canlı görünür (model ve fotoğraf görüşmede yeniden indirilmez).
   let onArka = null, onIstek = 0;
   const arkaGoster = async () => {
@@ -3709,8 +3751,11 @@ async function cihazDegistir(anahtar, deviceId) {
   if (eski) { yeni.enabled = eski.enabled; c.yerel.removeTrack(eski); eski.stop(); }
   c.yerel.addTrack(yeni);
   if (tur === 'audio') { analizEkle(durum.ben.id, yeni); sesiYenile(); }
-  else if (c.arka) await arkaPlanAyarla(c.arka.tur, c.arka.resim); // yeni kamerayla yeniden işle
-  else videoyuYenile();
+  else {
+    kamerayiKoru(c.yerel, c.kamYenilendi);
+    if (c.arka) await arkaPlanAyarla(c.arka.tur, c.arka.resim); // yeni kamerayla yeniden işle
+    else videoyuYenile();
+  }
   mikKamDugmeleri();
 }
 
