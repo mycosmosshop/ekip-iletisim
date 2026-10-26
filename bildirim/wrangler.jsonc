@@ -1,0 +1,8 @@
+// Ekip İletişim bildirim gönderici. Yükleme: bu klasörde  npx --yes wrangler@4 deploy
+// Gizli anahtar (bir kez): npx --yes wrangler@4 secret put VAPID_JWK  (özel anahtarın JWK metni)
+{
+  "name": "ekip-bildirim",
+  "main": "worker.js",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true
+}

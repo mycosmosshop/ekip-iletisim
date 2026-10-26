@@ -105,6 +105,7 @@
   .ayar-profil { display: flex; gap: 14px; align-items: center; }
   .ayar-profil .avatar { width: 72px; height: 72px; font-size: 26px; }
   .ayar-profil small { display: block; color: var(--soluk); margin-top: 6px; }
+  #ayarlar .ipucu { color: var(--soluk); font-size: 12.5px; margin-top: -6px; }
 
   /* ---- başlık ve mesajlar ---- */
   #orta { display: flex; flex-direction: column; min-width: 0; background: var(--zemin); }
@@ -603,6 +604,8 @@
     <div id="ayarArka" class="arka-izgara" role="radiogroup" aria-label="Arka plan"></div>
     <h3>Bildirimler</h3>
     <div class="satir2"><span id="ayarBildirim"></span><button type="button" id="ayarBildirimDugme">Bildirimlere izin ver</button></div>
+    <div class="satir2"><span id="ayarPush"></span><button type="button" id="ayarPushDugme"></button><button type="button" id="ayarPushDeneme" hidden>Deneme bildirimi gönder</button></div>
+    <small id="ayarPushNot" class="ipucu">Görüşme çağrısı, birebir mesaj ve @bahsetme sayfa kapalıyken de bu cihaza gelir. Telefonda: sayfayı açıp bu düğmeye bas. iPhone'da önce Paylaş → "Ana Ekrana Ekle" ile uygulama olarak ekleyip oradan aç.</small>
     <div class="satir2"><button value="kapat" class="ana">Tamam</button></div>
   </form>
 </dialog>
@@ -1215,6 +1218,7 @@ async function gonder(metin, dosya, ek) {
     // Tablo varken mesaj yalnız veritabanından dağıtılır: RLS kimin göreceğine karar verir.
     const { error } = await sb.from('ekip_mesaj').insert({ id: m.id, kanal: m.kanal, yazar_ad: m.yazar_ad, metin: m.metin, dosya: m.dosya, yanit: m.yanit, toplanti: m.toplanti });
     if (error) $('uyari').textContent = 'Mesaj gönderilemedi: ' + error.message;
+    else mesajBildirimi(m);
     return;
   }
   if (m.kanal.startsWith('dm:')) kutuyaGonder(karsiTaraf(m.kanal), 'mesaj', m);
@@ -1536,10 +1540,91 @@ function ayarlariAc() {
     localStorage.setItem('ekip_isik', e.target.checked ? '1' : '0');
     if (durum.cagri) { const a = durum.cagri.arka; arkaPlanAyarla(a ? a.tur : 'yok', a && a.resim); }
   };
-  $('ayarBildirimDugme').onclick = async () => { await Notification.requestPermission(); yenile(); };
+  $('ayarBildirimDugme').onclick = async () => { await Notification.requestPermission(); yenile(); pushCiz(); };
+  pushCiz();
   yenile();
   $('ayarlar').showModal();
 }
+// ---------- telefona / bilgisayara bildirim (Web Push) ----------
+// Abonelik ekip_push tablosuna yazılır; gönderimi bildirim/worker.js (Cloudflare) yapar, gönderenin oturumuyla.
+const VAPID_ACIK = 'BG0c_5L-MlLvRSDAU7f5mINd3SD5xQhO005RP1JT6VZVTYalGAmplRnqtYeNEuVSMz0rTAaQbJnbYD9CtILf57U';
+const BILDIRIM_URL = 'https://ekip-bildirim.balloondraw.workers.dev/gonder';
+const pushVar = () => 'serviceWorker' in navigator && 'PushManager' in window && !YEREL && !KONUK;
+const b64uBayt = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+
+async function pushAboneligi() {
+  if (!pushVar()) return null;
+  const kayit = await navigator.serviceWorker.getRegistration('./');
+  return kayit ? kayit.pushManager.getSubscription() : null;
+}
+async function pushKaydet(abone) {
+  const j = abone.toJSON();
+  const { error } = await sb.from('ekip_push').upsert({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, cihaz: navigator.userAgent.slice(0, 190) });
+  if (error) throw error;
+}
+async function pushAc() {
+  if ((await Notification.requestPermission()) !== 'granted') throw new Error('Bildirim izni verilmedi');
+  const kayit = await navigator.serviceWorker.register('sw.js', { scope: './' });
+  await navigator.serviceWorker.ready;
+  const abone = await kayit.pushManager.getSubscription() || await kayit.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uBayt(VAPID_ACIK) });
+  await pushKaydet(abone);
+}
+async function pushKapat() {
+  const abone = await pushAboneligi();
+  if (!abone) return;
+  await sb.from('ekip_push').delete().eq('endpoint', abone.endpoint);
+  await abone.unsubscribe();
+}
+async function pushCiz() {
+  const d = $('ayarPushDugme');
+  if (!pushVar()) { $('ayarPush').textContent = YEREL ? 'Sayfa kapalıyken bildirim yerel denemede yok' : 'Bu tarayıcı sayfa kapalıyken bildirimi desteklemiyor'; d.hidden = true; $('ayarPushNot').hidden = YEREL; return; }
+  const abone = await pushAboneligi().catch(() => null);
+  $('ayarPush').textContent = abone ? '✓ Sayfa kapalıyken de bu cihaza bildirim gelir' : 'Sayfa kapalıyken bildirim kapalı';
+  d.hidden = false; d.disabled = false; d.textContent = abone ? 'Kapat' : 'Bu cihazda aç';
+  // Bildirim gönderene gitmediği için tek hesapla deneme: kendi tüm cihazlarına (telefon dahil) bir bildirim.
+  const deneme = $('ayarPushDeneme');
+  deneme.hidden = !abone;
+  deneme.onclick = async () => {
+    deneme.disabled = true;
+    const { data: { session } } = await sb.auth.getSession();
+    const r = await fetch(BILDIRIM_URL, { method: 'POST', headers: { Authorization: 'Bearer ' + (session && session.access_token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deneme: true, baslik: '🔔 Ekip İletişim deneme bildirimi', govde: 'Bu cihaza bildirim geliyor.', url: location.origin + location.pathname, etiket: 'deneme' }) })
+      .then((x) => x.json()).catch((e) => ({ ok: false, hata: e.message }));
+    $('ayarPush').textContent = r.ok ? `✓ ${r.gonderilen} cihaza gönderildi (bu cihaz dahil)` : 'Gönderilemedi: ' + r.hata;
+    deneme.disabled = false;
+  };
+  d.onclick = async () => {
+    d.disabled = true;
+    try { if (abone) await pushKapat(); else await pushAc(); }
+    catch (e) { $('ayarPush').textContent = 'Açılamadı: ' + e.message; d.disabled = false; return; }
+    pushCiz();
+  };
+}
+
+// Bildirim gönderir; sayfası şu an açık olanlar (lobide) sayfadan zaten haber alır, onlara gitmez.
+async function pushGonder(o) {
+  if (!durum.tabloVar || YEREL || KONUK) return;
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return;
+    await fetch(BILDIRIM_URL, {
+      method: 'POST', headers: { Authorization: 'Bearer ' + session.access_token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ haric: [...durum.cevrimici.keys()], ...o }),
+    });
+  } catch (e) { /* bildirim gitmezse sohbet etkilenmez */ }
+}
+const uygulamaAdresi = (k, katil) => location.origin + location.pathname + '?kanal=' + encodeURIComponent(k) + (katil ? '&katil=1' : '');
+
+// Birebir mesaj karşı tarafa, kanal mesajı yalnız @bahsedilenlere bildirim olarak gider.
+async function mesajBildirimi(m) {
+  const ozet = m.dosya ? '📎 ' + m.dosya.ad : String(m.metin).slice(0, 200);
+  if (m.kanal.startsWith('dm:')) return pushGonder({ kanal: m.kanal, kisiler: [karsiTaraf(m.kanal)], baslik: durum.ben.ad, govde: ozet, url: uygulamaAdresi(m.kanal), etiket: 'm-' + m.kanal });
+  if (!m.metin || !m.metin.includes('@')) return;
+  const metin = kucuk(m.metin);
+  const kisiler = (await kisileriGetir()).filter((k) => k.ad && metin.includes('@' + kucuk(k.ad))).map((k) => k.id);
+  if (kisiler.length) pushGonder({ kanal: m.kanal, kisiler, baslik: `${durum.ben.ad} senden bahsetti · ${kanalBasligi(m.kanal)}`, govde: ozet, url: uygulamaAdresi(m.kanal), etiket: 'b-' + m.id });
+}
+
 // Kendi resmim değişince: sol alt kart, ayar penceresi, lobi (kişi listesi ve mesajlar) ve görüşme hemen güncellenir.
 function profilFotosuDegisti() {
   const f = localStorage.getItem('ekip_foto');
@@ -3904,6 +3989,8 @@ async function basla() {
   benCiz();
   $('ben').onclick = ayarlariAc;
   await tabloyuDene();
+  // Bu cihaz daha önce bildirime abone olduysa kaydı tazelenir (adres değişmiş ya da başka kullanıcıya geçilmiş olabilir).
+  if (durum.tabloVar && pushVar() && Notification.permission === 'granted') pushAboneligi().then((a) => a && pushKaydet(a)).catch(() => {});
   await ozelKanallariYukle(); // lobiye bağlanmadan önce: özel kanal adları lobiye yayılmasın
   lobiyeBaglan();
   toplantilariYukle();
@@ -3943,7 +4030,14 @@ async function basla() {
   $('ara').addEventListener('search', () => { if (!$('ara').value) aramaKapat(); });
   $('durumSec').value = durum.durumum;
   $('durumSec').onchange = (e) => { durum.durumum = e.target.value; localStorage.setItem('ekip_durum', durum.durumum); lobiDurumuYay(); };
-  $('cagriDugme').onclick = () => cagriyaKatil();
+  $('cagriDugme').onclick = async () => {
+    // Görüşmeyi ilk başlatan kanaldakilere (birebirde karşı tarafa) telefon bildirimi yollar; süren görüşmeye katılan yollamaz.
+    const k = durum.aktif, yeni = !cagriSayilari().get(k);
+    await cagriyaKatil();
+    if (!durum.cagri || !yeni) return;
+    pushGonder({ kanal: k, kisiler: k.startsWith('dm:') ? [karsiTaraf(k)] : null, cagri: true, etiket: 'c-' + k, url: uygulamaAdresi(k, true),
+                 baslik: `📞 ${durum.ben.ad} görüşme başlattı`, govde: (k.startsWith('dm:') ? 'Seni arıyor' : kanalBasligi(k)) + ' · katılmak için dokun' });
+  };
   $('baglantiDugme').onclick = () => (durum.cagri ? davetGoster() : baglantiOlustur());
   $('baglantiKapat').onclick = () => { $('baglantiKutu').hidden = true; };
   $('planDugme').onclick = planPaneliAc;

@@ -213,4 +213,46 @@ begin
   end if;
 end $$;
 
+-- 9) Telefona / bilgisayara bildirim (Web Push) ----------------------------------------------
+-- Her cihazın abonelik adresi burada; bildirimi Cloudflare Worker (bildirim/worker.js) gönderen kişinin
+-- oturumuyla ekip_push_hedefler'e sorar: alıcı = kanala erişimi olan, onaylı, gönderenden başka kullanıcılar.
+create table if not exists public.ekip_push (
+  endpoint     text primary key check (endpoint like 'https://%' and char_length(endpoint) < 1000),
+  kullanici_id uuid not null default auth.uid(),
+  p256dh       text not null check (char_length(p256dh) < 200),
+  auth         text not null check (char_length(auth) < 100),
+  cihaz        text check (char_length(cihaz) < 200),
+  olusma       timestamptz not null default now()
+);
+alter table public.ekip_push enable row level security;
+drop policy if exists "ekip_push kendi" on public.ekip_push;
+create policy "ekip_push kendi" on public.ekip_push for all to authenticated
+  using (kullanici_id = auth.uid()) with check (public.ekip_onayli() and kullanici_id = auth.uid());
+
+-- kisiler: yalnız bu kişiler (birebir, @bahsetme); null ise kanala erişen herkes. haric: şu an sayfası açık olanlar.
+-- ponytail: alıcı adresleri onaylı çağırana döner; adres VAPID gizli anahtarı olmadan bildirim göndermeye yetmez.
+create or replace function public.ekip_push_hedefler(k text, kisiler uuid[] default null, haric uuid[] default '{}')
+returns table (endpoint text, p256dh text, auth text)
+language sql stable security definer set search_path = public as $$
+  select p.endpoint, p.p256dh, p.auth
+  from ekip_push p join erp_users e on e.id = p.kullanici_id and e.approved
+  where public.ekip_onayli() and public.ekip_kanala_erisir(k)
+    and p.kullanici_id <> auth.uid() and not (p.kullanici_id = any(coalesce(haric, '{}')))
+    and (kisiler is null or p.kullanici_id = any(kisiler))
+    and case
+      when k like 'dm:%' then k like '%' || p.kullanici_id::text || '%'
+      when exists (select 1 from ekip_kanal c where c.ad = split_part(k, '~', 1) and c.ozel) then
+           exists (select 1 from ekip_kanal c where c.ad = split_part(k, '~', 1) and c.olusturan = p.kullanici_id)
+        or exists (select 1 from ekip_kanal_uye u where u.kanal = split_part(k, '~', 1) and u.kullanici_id = p.kullanici_id)
+      else true
+    end
+  limit 300
+$$;
+
+-- Bildirim servisi "abonelik yok" (404/410) derse Worker o adresi siler.
+create or replace function public.ekip_push_sil(e text) returns void
+language sql security definer set search_path = public as $$
+  delete from ekip_push where endpoint = e and public.ekip_onayli()
+$$;
+
 notify pgrst, 'reload schema';
