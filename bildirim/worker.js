@@ -62,7 +62,27 @@ const supa = (yol, token, govde) => fetch(SUPA_URL + '/rest/v1/rpc/' + yol, {
   method: 'POST', headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(govde),
 });
 
+// 5 dakikada bir (wrangler.jsonc crons): 5–15 dakika içinde başlayacak planlı toplantıları kanala erişenlerin cihazlarına
+// hatırlatır. Supabase işlevi her toplantıyı bir kez verir. Gizli anahtar: wrangler secret put HATIRLATMA_GIZLI.
+async function toplantilariHatirlat(env) {
+  const r = await fetch(SUPA_URL + '/rest/v1/rpc/ekip_toplanti_hatirlat', {
+    method: 'POST', headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + SUPA_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gizli: env.HATIRLATMA_GIZLI }),
+  });
+  if (!r.ok) { console.log('hatırlatma sorgusu', r.status, await r.text()); return; }
+  const satirlar = await r.json();
+  // ponytail: cron'da oturum yok, ölü abonelik silinmez; gönderen birinin bildirim isteğinde silinir.
+  await Promise.all(satirlar.map((s) => {
+    const dk = Math.max(1, Math.round((Date.parse(s.bas) - Date.now()) / 60000));
+    const url = typeof s.link === 'string' && s.link.startsWith(UYGULAMA) ? s.link : UYGULAMA;
+    const veri = metinBayt(JSON.stringify({ baslik: `📅 ${String(s.konu || 'Toplantı').slice(0, 60)} · ${dk} dakika sonra`, govde: 'Katılmak için dokun',
+                                            url, etiket: 't-' + s.mesaj_id, cagri: false }));
+    return bildirimGonder(s, veri, env, true).catch(() => 0);
+  }));
+}
+
 export default {
+  async scheduled(olay, env, ctx) { ctx.waitUntil(toplantilariHatirlat(env)); },
   async fetch(istek, env) {
     const koken = istek.headers.get('Origin') || '';
     const cors = { 'Access-Control-Allow-Origin': IZINLI_KOKEN.includes(koken) ? koken : IZINLI_KOKEN[0],

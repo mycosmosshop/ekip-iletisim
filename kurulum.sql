@@ -249,6 +249,44 @@ language sql stable security definer set search_path = public as $$
   limit 300
 $$;
 
+-- 10) Planlanan toplantı hatırlatması (sayfa kapalıyken de) ------------------------------------
+-- Worker 5 dakikada bir çağırır; 5–15 dakika içinde başlayacak, hatırlatılmamış toplantıları ve kanala erişimi olanların
+-- cihazlarını verir, toplantıyı işaretler (bir kez). Çağrı Worker'daki gizli anahtar ister; burada yalnız SHA-256 özeti durur.
+create table if not exists public.ekip_sistem (ad text primary key, deger text not null);
+alter table public.ekip_sistem enable row level security;          -- kural yok: kimse okuyamaz
+create table if not exists public.ekip_hatirlatilan (mesaj_id uuid primary key, zaman timestamptz not null default now());
+alter table public.ekip_hatirlatilan enable row level security;
+
+create or replace function public.ekip_toplanti_hatirlat(gizli text)
+returns table (mesaj_id uuid, konu text, bas timestamptz, link text, endpoint text, p256dh text, auth text)
+language plpgsql security definer set search_path = public as $$
+begin
+  if encode(sha256(convert_to(coalesce(gizli, ''), 'UTF8')), 'hex') is distinct from (select deger from ekip_sistem where ad = 'hatirlatma_ozet') then
+    raise exception 'yetkisiz';
+  end if;
+  return query
+  with yakin as (
+    select m.id, m.kanal, m.toplanti from ekip_mesaj m
+    where m.toplanti is not null and not m.silindi
+      and (m.toplanti->>'bas')::timestamptz between now() + interval '5 minutes' and now() + interval '15 minutes'
+      and not exists (select 1 from ekip_hatirlatilan h where h.mesaj_id = m.id)
+  ), isaret as (
+    insert into ekip_hatirlatilan (mesaj_id) select id from yakin on conflict do nothing returning ekip_hatirlatilan.mesaj_id
+  )
+  select y.id, y.toplanti->>'konu', (y.toplanti->>'bas')::timestamptz, y.toplanti->>'link', p.endpoint, p.p256dh, p.auth
+  from yakin y join isaret i on i.mesaj_id = y.id
+  join ekip_push p on true join erp_users e on e.id = p.kullanici_id and e.approved
+  where case
+    when y.kanal like 'dm:%' then y.kanal like '%' || p.kullanici_id::text || '%'
+    when exists (select 1 from ekip_kanal c where c.ad = split_part(y.kanal, '~', 1) and c.ozel) then
+         exists (select 1 from ekip_kanal c where c.ad = split_part(y.kanal, '~', 1) and c.olusturan = p.kullanici_id)
+      or exists (select 1 from ekip_kanal_uye u where u.kanal = split_part(y.kanal, '~', 1) and u.kullanici_id = p.kullanici_id)
+    else true
+  end;
+end $$;
+-- Gizli anahtarın özeti bir kez yazılır (değer kurulum sırasında üretilir, burada yer almaz):
+-- insert into public.ekip_sistem values ('hatirlatma_ozet', '<sha256 hex>') on conflict (ad) do update set deger = excluded.deger;
+
 -- Bildirim servisi "abonelik yok" (404/410) derse Worker o adresi siler.
 create or replace function public.ekip_push_sil(e text) returns void
 language sql security definer set search_path = public as $$

@@ -4,5 +4,7 @@
   "name": "ekip-bildirim",
   "main": "worker.js",
   "compatibility_date": "2026-09-01",
-  "workers_dev": true
+  "workers_dev": true,
+  // Planlı toplantı hatırlatması: 5 dakikada bir (gizli anahtar: wrangler secret put HATIRLATMA_GIZLI)
+  "triggers": { "crons": ["*/5 * * * *"] }
 }
