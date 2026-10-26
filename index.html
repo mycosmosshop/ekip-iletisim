@@ -355,6 +355,7 @@
   #kayitlarListe { display: grid; gap: 2px; }
   #kayitlarListe .bilgi { color: var(--soluk); font-size: 13px; padding: 4px 10px 8px; }
   .kayit-oge { display: grid; gap: 2px; padding: 8px 10px; border-radius: 10px; color: inherit; text-decoration: none; }
+  .kayit-oge .alinti { grid-column: 2; font-size: 12.5px; color: var(--soluk); font-style: italic; }
   .kayit-oge:hover { background: var(--vurgu-acik); }
   .kayit-oge span { font-size: 12.5px; color: var(--soluk); }
   #sahipMenu { display: grid; gap: 2px; border-top: 1px solid var(--kenar); margin-top: 6px; padding-top: 8px; }
@@ -479,7 +480,7 @@
       <button id="kayitlarDugme" popovertarget="kayitlarMenu" title="Bu kanalda paylaşılan dosyalar, resimler, görüşme kayıtları ve sesli mesajlar (Drive'da)"><i data-lucide="folder-open"></i><span class="etiket">Dosyalar</span></button>
       <div id="kayitlarMenu" popover><b>Kanal dosyaları</b>
         <div class="dosya-filtre" role="group" aria-label="Dosya türü"><button data-f="hepsi" aria-pressed="true">Tümü</button><button data-f="resim">Resim</button><button data-f="belge">Belge</button><button data-f="kayit">Görüşme kaydı</button><button data-f="ses">Sesli mesaj</button></div>
-        <input id="dosyaAra" type="search" placeholder="Adıyla ya da gönderenle ara" aria-label="Dosya ara">
+        <input id="dosyaAra" type="search" placeholder="Ad, gönderen ya da kayıttaki konuşmada ara" aria-label="Dosya ara">
         <div id="kayitlarListe"></div></div>
       <button id="planDugme" title="İleri tarihli toplantı oluştur, sohbete kartını gönder"><i data-lucide="calendar-plus"></i>Planla</button>
       <button id="baglantiDugme" title="Linke sahip olan herkes, ERP girişi olmadan bu görüşmeye katılabilir"><i data-lucide="link-2"></i><span class="etiket">Görüşme bağlantısı</span></button>
@@ -2572,7 +2573,7 @@ async function kayitlariGoster() {
 }
 function dosyalariCiz() {
   const kutu = $('kayitlarListe'), f = $('kayitlarMenu').querySelector('.dosya-filtre [aria-pressed="true"]').dataset.f, ara = kucuk($('dosyaAra').value.trim());
-  const liste = dosyaListesi.satirlar.filter((m) => (f === 'hepsi' || dosyaTuru(m.dosya) === f) && (!ara || kucuk(m.dosya.ad + ' ' + m.yazar_ad + ' ' + m.metin).includes(ara)));
+  const liste = dosyaListesi.satirlar.filter((m) => (f === 'hepsi' || dosyaTuru(m.dosya) === f) && (!ara || kucuk(m.dosya.ad + ' ' + m.yazar_ad + ' ' + m.metin + ' ' + (m.dosya.konusma || '')).includes(ara)));
   if (!liste.length) {
     return kutu.replaceChildren(el('div', 'bilgi', dosyaListesi.satirlar.length ? 'Bu süzgece uyan dosya yok.'
       : 'Bu kanalda henüz dosya yok. 📎 ile dosya, 🎤 ile sesli mesaj gönderilir; görüşme kayıtları da buraya gelir.'));
@@ -2587,6 +2588,9 @@ function dosyalariCiz() {
     const ad = tur === 'kayit' ? 'Görüşme kaydı · ' + new Date(zaman(m.olusma) - sure * 60000).toLocaleString('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })
       : tur === 'ses' ? 'Sesli mesaj · ' + mmss(sure) + (m.metin.length > 3 ? ' · ' + m.metin.replace(/^🎤\s*/u, '').slice(0, 40) : '') : d.ad;
     a.append(simge, el('b', null, ad), el('span', null, [tarihYaz(m.olusma), tur === 'kayit' && sure && sure + ' dk', d.boyut && boyutYaz(d.boyut), m.yazar_ad].filter(Boolean).join(' · ')));
+    // Arama kayıttaki konuşmada eşleştiyse geçtiği yerden kısa bir alıntı göster.
+    const yer = ara && d.konusma ? kucuk(d.konusma).indexOf(ara) : -1;
+    if (yer >= 0) a.append(el('em', 'alinti', '“…' + d.konusma.slice(Math.max(0, yer - 40), yer + ara.length + 60).replace(/\n/g, ' ') + '…”'));
     return a;
   }));
 }
@@ -2609,7 +2613,9 @@ async function kayitDurdur() {
       const j = await k.yukleyici.bitir();
       $('uyari').textContent = '';
       // Görüşme sırasında başka kanala geçilmiş olsa da mesaj görüşmenin kanalına düşer; "Kayıtlar" listesi buradan okur.
-      await gonder(`🔴 ${k.ad} (${sure} dk)`, { ad: k.ad, url: j.url, boyut: j.boyut, tur: k.tur, sure }, { kanal: k.kanal });
+      // Konuşma dökümü (altyazı açıksa) kaydın mesajına eklenir; "Dosyalar"da konuşmaya göre arama buradan yapılır. Sınır: 20 bin karakter.
+      const konusma = (c.dokum || []).map((d) => `${d.ad}: ${d.metin}`).join('\n').slice(0, 20000);
+      await gonder(`🔴 ${k.ad} (${sure} dk)`, { ad: k.ad, url: j.url, boyut: j.boyut, tur: k.tur, sure, ...(konusma && { konusma }) }, { kanal: k.kanal });
       return;
     } catch (e) { $('uyari').textContent = 'Kayıt Drive\'a yüklenemedi (' + e.message + '); bilgisayarına indiriliyor.'; }
   }
