@@ -294,3 +294,11 @@ language sql security definer set search_path = public as $$
 $$;
 
 notify pgrst, 'reload schema';
+
+-- 11. Kanal arşivi (toplantı notları + paylaşılan dosyalar): özel kanalda sahibi kapatabilir. Açık kanalda ve birebir
+--     yazışmada hep açıktır. Mesajlar sohbette durur; bu yalnız arayüzdeki Arşiv bölümünü gizler.
+alter table public.ekip_kanal add column if not exists arsiv boolean not null default true;
+drop policy if exists "ekip_kanal guncelle" on public.ekip_kanal;
+create policy "ekip_kanal guncelle" on public.ekip_kanal for update to authenticated
+  using (olusturan = auth.uid()) with check (olusturan = auth.uid());
+notify pgrst, 'reload schema';

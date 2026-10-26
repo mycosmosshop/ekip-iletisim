@@ -372,6 +372,8 @@
   #kayitlarListe { display: grid; gap: 2px; }
   #kayitlarListe .bilgi { color: var(--soluk); font-size: 13px; padding: 4px 10px 8px; }
   .kayit-oge { display: grid; gap: 2px; padding: 8px 10px; border-radius: 10px; color: inherit; text-decoration: none; }
+  .not-satir { cursor: pointer; }
+  .not-govde { grid-column: 2; white-space: pre-wrap; font-size: 13.5px; line-height: 1.5; padding-top: 6px; }
   .kayit-oge .alinti { grid-column: 2; font-size: 12.5px; color: var(--soluk); font-style: italic; }
   .kayit-oge:hover { background: var(--vurgu-acik); }
   .kayit-oge span { font-size: 12.5px; color: var(--soluk); }
@@ -494,10 +496,10 @@
       <h1 id="kanalAdi"></h1>
       <span id="cagriBilgi"></span>
       <button id="uyeDugme" hidden title="Bu özel kanalın üyeleri"><i data-lucide="users"></i><span class="etiket">Üyeler</span></button>
-      <button id="kayitlarDugme" popovertarget="kayitlarMenu" title="Bu kanalda paylaşılan dosyalar, resimler, görüşme kayıtları ve sesli mesajlar (Drive'da)"><i data-lucide="folder-open"></i><span class="etiket">Dosyalar</span></button>
-      <div id="kayitlarMenu" popover><b>Kanal dosyaları</b>
-        <div class="dosya-filtre" role="group" aria-label="Dosya türü"><button data-f="hepsi" aria-pressed="true">Tümü</button><button data-f="resim">Resim</button><button data-f="belge">Belge</button><button data-f="kayit">Görüşme kaydı</button><button data-f="ses">Sesli mesaj</button></div>
-        <input id="dosyaAra" type="search" placeholder="Ad, gönderen ya da kayıttaki konuşmada ara" aria-label="Dosya ara">
+      <button id="kayitlarDugme" popovertarget="kayitlarMenu" title="Bu kanalın toplantı notları, paylaşılan dosyalar, resimler, görüşme kayıtları ve sesli mesajlar"><i data-lucide="folder-open"></i><span class="etiket">Arşiv</span></button>
+      <div id="kayitlarMenu" popover><b>Kanal arşivi</b>
+        <div class="dosya-filtre" role="group" aria-label="Dosya türü"><button data-f="hepsi" aria-pressed="true">Tümü</button><button data-f="resim">Resim</button><button data-f="belge">Belge</button><button data-f="kayit">Görüşme kaydı</button><button data-f="ses">Sesli mesaj</button><button data-f="not">Toplantı notları</button></div>
+        <input id="dosyaAra" type="search" placeholder="Ad, gönderen, not ya da kayıttaki konuşmada ara" aria-label="Dosya ara">
         <div id="kayitlarListe"></div></div>
       <button id="planDugme" title="İleri tarihli toplantı oluştur, sohbete kartını gönder"><i data-lucide="calendar-plus"></i>Planla</button>
       <button id="baglantiDugme" title="Linke sahip olan herkes, ERP girişi olmadan bu görüşmeye katılabilir"><i data-lucide="link-2"></i><span class="etiket">Görüşme bağlantısı</span></button>
@@ -630,6 +632,7 @@
     <strong id="kanalPenceresiBaslik">Yeni kanal</strong>
     <label>Kanal adı <input id="kanalAdiGir" required maxlength="40" placeholder="örnek: kalite-ekibi" autocomplete="off"></label>
     <label class="satir2"><input type="checkbox" id="kanalOzel"> Özel kanal: yalnız seçtiğin kişiler görür ve katılır</label>
+    <label class="satir2" id="arsivSatir"><input type="checkbox" id="kanalArsiv" checked> Arşiv açık: üyeler toplantı notlarını, kayıtları ve paylaşılan dosyaları Arşiv’den görebilir</label>
     <div id="uyeSecimi" hidden>
       <div class="ust-bilgi" id="uyeBilgi">Üyeleri işaretle</div>
       <div id="uyeListesi"></div>
@@ -816,6 +819,7 @@ function kanalEkle(k, yay) {
   if (k.startsWith('dm:') || durum.kanallar.has(k)) return;
   durum.kanallar.add(k);
   localStorage.setItem('ekip_kanallar', JSON.stringify([...durum.kanallar]));
+  arsivDugmesiniGuncelle();
   if (yay) lobiDurumuYay();
   kanallariCiz();
 }
@@ -1163,12 +1167,12 @@ function toplantiyaKatil(t) {
 async function ozelKanallariYukle() {
   if (!durum.tabloVar) return;
   const [kanallar, uyeler] = await Promise.all([
-    sb.from('ekip_kanal').select('ad, olusturan').eq('ozel', true),
+    sb.from('ekip_kanal').select('ad, olusturan, arsiv').eq('ozel', true),
     sb.from('ekip_kanal_uye').select('kanal, kullanici_id'),
   ]);
   if (kanallar.error) return;
   const onceki = [...durum.ozel.keys()];
-  durum.ozel = new Map(kanallar.data.map((k) => [k.ad, { olusturan: k.olusturan, uyeler: new Set() }]));
+  durum.ozel = new Map(kanallar.data.map((k) => [k.ad, { olusturan: k.olusturan, arsiv: k.arsiv !== false, uyeler: new Set() }]));
   (uyeler.data || []).forEach((u) => durum.ozel.get(u.kanal)?.uyeler.add(u.kullanici_id));
   for (const k of onceki) if (!durum.ozel.has(k)) durum.kanallar.delete(k); // çıkarıldığım kanal listemden düşer
   durum.ozel.forEach((_, k) => durum.kanallar.add(k));
@@ -1188,6 +1192,18 @@ async function kisileriGetir() {
   return liste.filter((k) => k.id !== durum.ben.id);
 }
 
+// Arşiv (toplantı notları + dosyalar): özel kanalda sahibi kapatabilir; açık kanalda ve birebir yazışmada hep açık.
+// Mesajlar sohbette durur; bu yalnız Arşiv bölümünü gizler.
+function arsivAcik(k) {
+  const oz = durum.ozel.get(String(k || '').split('~')[0]);
+  return !oz || oz.arsiv || oz.olusturan === durum.ben.id;
+}
+function arsivDugmesiniGuncelle() {
+  const ac = arsivAcik(durum.aktif);
+  $('kayitlarDugme').hidden = !ac;
+  if (!ac && $('kayitlarMenu').matches(':popover-open')) $('kayitlarMenu').hidePopover();
+}
+
 // duzenlenen yoksa yeni kanal; özel kanal adı verilirse üyeleri (yalnız açan kişi değiştirir).
 async function kanalPenceresiAc(duzenlenen) {
   const oz = duzenlenen && durum.ozel.get(duzenlenen), sahibim = !oz || oz.olusturan === durum.ben.id;
@@ -1197,6 +1213,7 @@ async function kanalPenceresiAc(duzenlenen) {
   $('kanalTamam').textContent = oz ? 'Üyeleri kaydet' : 'Kanalı oluştur'; $('kanalTamam').hidden = !sahibim;
   $('kanaldanAyril').hidden = !oz || sahibim;
   $('kanalHata').hidden = true;
+  $('kanalArsiv').checked = oz ? oz.arsiv : true; $('kanalArsiv').disabled = !sahibim;
   $('uyeBilgi').textContent = sahibim ? 'Üyeleri işaretle. Sen her zaman üyesin.' : 'Üyeleri yalnız kanalı açan kişi değiştirebilir.';
   const kisiler = await kisileriGetir();
   $('uyeListesi').replaceChildren(...kisiler.map((k) => {
@@ -1206,7 +1223,7 @@ async function kanalPenceresiAc(duzenlenen) {
     return l;
   }));
   if (!kisiler.length) $('uyeListesi').append(el('div', 'bilgi', 'Seçilecek kişi bulunamadı.'));
-  $('uyeSecimi').hidden = !$('kanalOzel').checked;
+  $('uyeSecimi').hidden = !$('kanalOzel').checked; $('arsivSatir').hidden = !$('kanalOzel').checked;
   $('kanalPenceresi').showModal();
   if (!oz) $('kanalAdiGir').focus();
 }
@@ -1221,8 +1238,12 @@ async function kanalKaydet() {
   if (!oz && durum.kanallar.has(ad)) return hata('Bu adda bir kanal zaten var; başka bir ad seç.');
   if (durum.tabloVar) {
     if (!oz) {
-      const { error } = await sb.from('ekip_kanal').insert({ ad, ozel: true });
+      const { error } = await sb.from('ekip_kanal').insert({ ad, ozel: true, arsiv: $('kanalArsiv').checked });
       if (error) return hata(error.code === '23505' || error.code === '42501' ? 'Bu adda bir kanal zaten var; başka bir ad seç.' : 'Kanal açılamadı: ' + error.message);
+    }
+    if (oz && oz.olusturan === durum.ben.id && oz.arsiv !== $('kanalArsiv').checked) {
+      const { error } = await sb.from('ekip_kanal').update({ arsiv: $('kanalArsiv').checked }).eq('ad', ad);
+      if (error) return hata('Arşiv ayarı kaydedilemedi: ' + error.message);
     }
     const eski = oz ? oz.uyeler : new Set(), yeni = new Set([durum.ben.id, ...secili]);
     const eklenecek = [...yeni].filter((id) => !eski.has(id)), cikacak = [...eski].filter((id) => !yeni.has(id));
@@ -1237,7 +1258,7 @@ async function kanalKaydet() {
     await ozelKanallariYukle();
   } else {
     // Yerel deneme: kural veritabanında olduğundan burada yalnız görünüm
-    durum.ozel.set(ad, { olusturan: durum.ben.id, uyeler: new Set([durum.ben.id, ...secili]) });
+    durum.ozel.set(ad, { olusturan: durum.ben.id, arsiv: $('kanalArsiv').checked, uyeler: new Set([durum.ben.id, ...secili]) });
     localStorage.setItem('ekip_ozel', JSON.stringify([...durum.ozel.keys()]));
     kanalEkle(ad, false);
   }
@@ -1599,7 +1620,7 @@ async function kanalaGec(k) {
   $('kacirdik').hidden = true;
   durum.aktif = k; durum.okunmamis.delete(k);
   durum.arama = null; durum.duzenlenen = durum.silinecek = null; yanitIptal(); yaziyorCiz();
-  kanallariCiz(); basligiCiz(); mesajlariCiz(); sekmeBasligi();
+  kanallariCiz(); basligiCiz(); mesajlariCiz(); sekmeBasligi(); arsivDugmesiniGuncelle();
   await gecmisYukle(k);
   mesajlariCiz();
   if (durum.aktif === k) kacirdiklariGoster(k, oturumda || await dbOkundu);
@@ -2623,7 +2644,7 @@ async function kayitBaslat() {
 // Kanal dosyaları: kanalda paylaşılan her şey (dosya, resim, görüşme kaydı, sesli mesaj). Dosyalar Drive'da durur;
 // liste, mesajlardaki bağlantılardan kurulur. Tür ve ad/gönderen süzgeci yalnız tarayıcıda uygulanır.
 const dosyaTuru = (d) => (d.ses ? 'ses' : /^Görüşme kaydı/.test(d.ad || '') ? 'kayit' : resimMi(d) ? 'resim' : 'belge');
-let dosyaListesi = { kanal: null, satirlar: [] };
+let dosyaListesi = { kanal: null, satirlar: [], notlar: [] };
 async function kayitlariGoster() {
   const kutu = $('kayitlarListe'), kanal = durum.aktif, bilgi = (metin) => kutu.replaceChildren(el('div', 'bilgi', metin));
   if (!durum.tabloVar) return bilgi('Mesaj geçmişi kapalıyken liste tutulmaz; dosyalar Drive’da “Ekip İletişim Dosyaları” klasöründe.');
@@ -2632,11 +2653,32 @@ async function kayitlariGoster() {
     .not('dosya', 'is', null).eq('silindi', false).order('olusma', { ascending: false }).limit(300);
   if (kanal !== durum.aktif) return;
   if (error) return bilgi('Dosyalar okunamadı: ' + error.message);
-  dosyaListesi = { kanal, satirlar: data.filter((m) => m.dosya && m.dosya.url) };
+  const notlar = await sb.from('ekip_mesaj').select('id, yazar_ad, metin, dosya, olusma').eq('kanal', kanal).eq('silindi', false)
+    .or('metin.like.📝 Toplantı notu%,metin.like.✨ Toplantı özeti%').order('olusma', { ascending: false }).limit(100);
+  if (kanal !== durum.aktif) return;
+  dosyaListesi = { kanal, satirlar: data.filter((m) => m.dosya && m.dosya.url), notlar: notlar.data || [] };
   dosyalariCiz();
+}
+// Toplantı notları: ilk satır başlık, dokununca özetin tamamı açılır (uzun notlar Drive'daki .txt dosyasıdır).
+function notlariCiz(kutu, ara) {
+  const liste = dosyaListesi.notlar.filter((m) => !ara || kucuk(m.metin).includes(ara));
+  if (!liste.length) return kutu.replaceChildren(el('div', 'bilgi', dosyaListesi.notlar.length ? 'Aramaya uyan not yok.'
+    : 'Bu kanalda henüz toplantı notu yok. Görüşme bitince ya da not düğmesine basınca burada toplanır.'));
+  kutu.replaceChildren(...liste.map((m) => {
+    const sat = m.metin.split(String.fromCharCode(10)), a = el('div', 'kayit-oge dosya-satir not-satir'), simge = el('span', 'simge', '📝');
+    const govde = el('div', 'not-govde', sat.slice(1).join(String.fromCharCode(10)).trim()); govde.hidden = true;
+    a.tabIndex = 0; a.setAttribute('role', 'button');
+    a.append(simge, el('b', null, sat[0].replace(/^(📝|✨)\s*/u, '')), el('span', null, [tarihYaz(m.olusma), m.yazar_ad].join(' · ')), govde);
+    if (m.dosya && m.dosya.url) { const l = el('a', null, 'Tam notu aç'); l.href = m.dosya.url; l.target = '_blank'; l.rel = 'noopener'; govde.append(l); }
+    const ac = () => { govde.hidden = !govde.hidden; };
+    a.onclick = (e) => { if (!e.target.closest('a')) ac(); };
+    a.onkeydown = (e) => { if (e.key === 'Enter') ac(); };
+    return a;
+  }));
 }
 function dosyalariCiz() {
   const kutu = $('kayitlarListe'), f = $('kayitlarMenu').querySelector('.dosya-filtre [aria-pressed="true"]').dataset.f, ara = kucuk($('dosyaAra').value.trim());
+  if (f === 'not') return notlariCiz(kutu, ara);
   const liste = dosyaListesi.satirlar.filter((m) => (f === 'hepsi' || dosyaTuru(m.dosya) === f) && (!ara || kucuk(m.dosya.ad + ' ' + m.yazar_ad + ' ' + m.metin + ' ' + (m.dosya.konusma || '')).includes(ara)));
   if (!liste.length) {
     return kutu.replaceChildren(el('div', 'bilgi', dosyaListesi.satirlar.length ? 'Bu süzgece uyan dosya yok.'
@@ -4388,7 +4430,7 @@ async function basla() {
   setInterval(toplantilariYukle, 30 * 60000);
   $('kanalEkle').onclick = () => kanalPenceresiAc();
   $('uyeDugme').onclick = () => kanalPenceresiAc(durum.aktif);
-  $('kanalOzel').onchange = (e) => { $('uyeSecimi').hidden = !e.target.checked; };
+  $('kanalOzel').onchange = (e) => { $('uyeSecimi').hidden = $('arsivSatir').hidden = !e.target.checked; };
   $('kanaldanAyril').onclick = () => kanaldanAyril($('kanalAdiGir').value);
   $('kanalForm').onsubmit = async (e) => {
     if (!e.submitter || e.submitter.value !== 'tamam') return; // Vazgeç pencereyi kapatır
