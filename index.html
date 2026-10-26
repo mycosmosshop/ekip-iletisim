@@ -543,6 +543,7 @@
       <label>Kamera<select id="secKam"></select></label>
       <label>Hoparlör<select id="secHop"></select></label>
       <label><input type="checkbox" id="secIsik"> Işığı artır</label>
+      <label title="Klima, makine, klavye gibi gürültüleri yapay zekâyla siler (tarayıcıda, ses dışarı gitmez)"><input type="checkbox" id="secGurultu"> Gürültü engelleme</label>
       <span class="satir2" title="Kamera kapalıyken karonda görünür; yoksa adının baş harfleri">Profil resmi <button type="button" id="fotoSec">Seç…</button><button type="button" id="fotoSil">Kaldır</button></span>
       <input type="file" id="fotoDosya" accept="image/*" hidden>
       <div id="secArka" class="arka-izgara" role="radiogroup" aria-label="Arka plan"></div>
@@ -600,6 +601,7 @@
     <label><input type="checkbox" id="ayarMikKapali"> Mikrofonum kapalı başlasın</label>
     <label><input type="checkbox" id="ayarKamKapali"> Kameram kapalı başlasın</label>
     <label><input type="checkbox" id="ayarIsik"> Işığı artır</label>
+    <label title="Klima, makine, klavye gibi gürültüleri yapay zekâyla siler; ses tarayıcıdan dışarı gitmez"><input type="checkbox" id="ayarGurultu"> Gürültü engelleme (önerilir)</label>
     <h3>Arka plan</h3>
     <div id="ayarArka" class="arka-izgara" role="radiogroup" aria-label="Arka plan"></div>
     <h3>Bildirimler</h3>
@@ -1522,6 +1524,8 @@ function ayarlariAc() {
   $('ayarMikKapali').checked = localStorage.getItem('ekip_mik_kapali') === '1';
   $('ayarKamKapali').checked = localStorage.getItem('ekip_kam_kapali') === '1';
   $('ayarIsik').checked = localStorage.getItem('ekip_isik') === '1';
+  $('ayarGurultu').checked = gurultuAcik();
+  $('ayarGurultu').onchange = (e) => { localStorage.setItem('ekip_gurultu', e.target.checked ? '1' : '0'); gurultuUygula(); };
   arkaIzgarasi($('ayarArka'), (tur) => {
     localStorage.setItem('ekip_arka', tur); arkaIsaretle(tur);
     if (durum.cagri) arkaPlanAyarla(tur); // görüşmedeyse hemen uygulanır
@@ -1812,7 +1816,39 @@ async function profilResmiSecildi(dosya) {
 
 const gonderilecekVideo = () => durum.cagri.ekran || (durum.cagri.arka && durum.cagri.arka.iz) || durum.cagri.yerel.getVideoTracks()[0] || null;
 // Ekran sesi paylaşılırken mikrofonla karışık iz gider
-const gonderilecekSes = () => durum.cagri.karisik || durum.cagri.yerel.getAudioTracks()[0] || null;
+// Karşıya giden ses: ekran sesiyle karışım > gürültüsü temizlenmiş mikrofon > ham mikrofon.
+const temizMik = (c) => { const mik = c.yerel.getAudioTracks()[0]; return c.temizSes && c.temizSes.asil === mik ? c.temizSes.iz : mik; };
+const gonderilecekSes = () => durum.cagri.karisik || temizMik(durum.cagri) || null;
+
+// ---------- ses gürültü engelleme (RNNoise, tarayıcıda; ses hiçbir sunucuya gitmez) ----------
+// Klima, makine, klavye gibi sürekli gürültüyü yapay zekâ modeliyle siler. Model 48 kHz ister: ayrı ses bağlamı.
+// Kapalı mikrofon (enabled=false) sessizlik verdiği için temiz iz de sessiz kalır; susturma bozulmaz.
+const RNN = 'https://cdn.jsdelivr.net/npm/@sapphi-red/web-noise-suppressor@0.4.1/dist/';
+let rnnWasm = null;
+async function gurultuZinciri(mik) {
+  const kutup = await import(RNN + 'index.js');
+  rnnWasm = rnnWasm || kutup.loadRnnoise({ url: RNN + 'rnnoise.wasm', simdUrl: RNN + 'rnnoise_simd.wasm' });
+  const ctx = new AudioContext({ sampleRate: 48000 });
+  await ctx.audioWorklet.addModule(RNN + 'rnnoise/workletProcessor.js');
+  const dugum = new kutup.RnnoiseWorkletNode(ctx, { wasmBinary: await rnnWasm, maxChannels: 1 }), hedef = ctx.createMediaStreamDestination();
+  ctx.createMediaStreamSource(new MediaStream([mik])).connect(dugum); dugum.connect(hedef);
+  return { asil: mik, iz: hedef.stream.getAudioTracks()[0], durdur: () => { dugum.destroy(); ctx.close().catch(() => {}); } };
+}
+const gurultuAcik = () => localStorage.getItem('ekip_gurultu') !== '0';
+async function gurultuUygula() {
+  const c = durum.cagri;
+  if (!c) return;
+  const mik = c.yerel.getAudioTracks()[0];
+  if (c.temizSes && (!gurultuAcik() || c.temizSes.asil !== mik)) { c.temizSes.durdur(); c.temizSes = null; sesiYenile(); }
+  if (!gurultuAcik() || !mik || c.temizSes || c.gurultuKuruluyor) return;
+  c.gurultuKuruluyor = true;
+  try {
+    const z = await gurultuZinciri(mik);
+    if (durum.cagri !== c || c.yerel.getAudioTracks()[0] !== mik || !gurultuAcik()) return z.durdur();
+    c.temizSes = z; sesiYenile();
+  } catch (e) { console.warn('Gürültü engelleme açılamadı, ham mikrofon gidiyor:', e); }
+  finally { c.gurultuKuruluyor = false; }
+}
 
 function esOlustur(id, ad) {
   const c = durum.cagri;
@@ -2153,12 +2189,14 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
   yalnizlikCiz();
   mikKamDugmeleri();
   if (yerel.getAudioTracks()[0]) analizEkle(durum.ben.id, yerel.getAudioTracks()[0]);
+  gurultuUygula(); // model yüklenirken ham mikrofon gider, hazır olunca temiz ses devreye girer
   c.olcer = setInterval(konusmayiOlc, 150);
   lobiDurumuYay(); basligiCiz();
   anketCiz(); soruCiz(); kisileriCizCagri(); odaListesiCiz();
   const arka = localStorage.getItem('ekip_arka');
   arkaIsaretle(arka || 'yok');
   $('secIsik').checked = localStorage.getItem('ekip_isik') === '1';
+  $('secGurultu').checked = gurultuAcik();
   if ((arka && arka !== 'yok') || $('secIsik').checked) arkaPlanAyarla(arka || 'yok'); // model yüklenirken görüşme beklemez
 }
 
@@ -2193,6 +2231,7 @@ async function cagridanAyril(gecis) {
   for (const id of [...c.esler.keys()]) esKapat(id);
   clearInterval(c.olcer); clearTimeout(c.altOdaSayac);
   sessizKopyaBirak(c); $('sessizUyari').hidden = true;
+  if (c.temizSes) { c.temizSes.durdur(); c.temizSes = null; }
   if (c.sfu) await c.sfu.oda.disconnect(false).catch(() => {}); // izleri kendimiz durdururuz
   arkaPlanDurdur();
   c.yerel.getTracks().forEach((t) => t.stop());
@@ -2971,7 +3010,7 @@ async function ekranPaylas() {
   if (c.ekranSes) {
     // Tek ses izi gönderiliyor: mikrofon + bilgisayar sesi karıştırılır; mikrofon kapatılırsa karışıma sessizlik girer.
     const ctx = sesBaglami(), hedef = ctx.createMediaStreamDestination();
-    const mik = c.yerel.getAudioTracks()[0];
+    const mik = temizMik(c);
     if (mik) ctx.createMediaStreamSource(new MediaStream([mik])).connect(hedef);
     ctx.createMediaStreamSource(new MediaStream([c.ekranSes])).connect(hedef);
     c.karisik = hedef.stream.getAudioTracks()[0];
@@ -3259,7 +3298,7 @@ async function onizlemeGoster(yerel) {
     d.onclose = () => ok(d.returnValue);
   });
   if (d.open) d.close();
-  clearInterval(olcer); ctx.close(); denetim++;
+  clearInterval(olcer); ctx.close().catch(() => {}); denetim++;
   onIstek++; if (onArka) onArka.durdur();
   $('onizlemeVideo').srcObject = null;
   return secim === 'katil';
@@ -3869,7 +3908,7 @@ async function cihazDegistir(anahtar, deviceId) {
   const eski = tur === 'audio' ? c.yerel.getAudioTracks()[0] : c.yerel.getVideoTracks()[0];
   if (eski) { yeni.enabled = eski.enabled; c.yerel.removeTrack(eski); eski.stop(); }
   c.yerel.addTrack(yeni);
-  if (tur === 'audio') { analizEkle(durum.ben.id, yeni); sesiYenile(); }
+  if (tur === 'audio') { analizEkle(durum.ben.id, yeni); sesiYenile(); gurultuUygula(); }
   else {
     kamerayiKoru(c.yerel, c.kamYenilendi);
     if (c.arka) await arkaPlanAyarla(c.arka.tur, c.arka.resim); // yeni kamerayla yeniden işle
@@ -3913,6 +3952,7 @@ function cagriDugmeleriniBagla() {
   $('secMik').onchange = (e) => cihazDegistir('mik', e.target.value);
   $('secKam').onchange = (e) => cihazDegistir('kam', e.target.value);
   $('secHop').onchange = (e) => cihazDegistir('hop', e.target.value);
+  $('secGurultu').onchange = (e) => { localStorage.setItem('ekip_gurultu', e.target.checked ? '1' : '0'); gurultuUygula(); };
   $('secIsik').onchange = (e) => {
     localStorage.setItem('ekip_isik', e.target.checked ? '1' : '0');
     const a = durum.cagri.arka;
