@@ -302,6 +302,12 @@
   .anket button.secenek.benim { border-color: var(--vurgu); font-weight: 600; }
   .anket > button:last-child:not(.secenek) { margin-top: 8px; }
   .soru.cevaplandi { opacity: .55; }
+  #ortakNot { flex: 1; min-height: 160px; margin: 10px; padding: 10px 12px; resize: none; border: 1px solid var(--kenar); border-radius: 12px;
+              font: 14px/1.55 var(--yazi-govde); color: var(--yazi); background: var(--panel); }
+  #ortakNot:focus { outline: 2px solid var(--vurgu); outline-offset: -1px; }
+  .not-alt { display: flex; gap: 8px; align-items: center; padding: 0 10px 10px; font-size: 12px; color: var(--soluk); }
+  .not-alt span { flex: 1; }
+  .not-alt button { padding: 4px 10px; font-size: 12.5px; }
   .soru .alt { display: flex; gap: 6px; align-items: center; margin-top: 6px; font-size: 12.5px; color: var(--soluk); }
   .soru .alt button { padding: 2px 9px; font-size: 12px; }
 
@@ -502,7 +508,7 @@
       <div id="sahne"></div>
       <aside id="gSohbet" hidden>
         <div id="panelSekmeleri" role="tablist">
-          <button role="tab" data-bolum="sohbet" aria-selected="true">Sohbet</button><button role="tab" data-bolum="kisiler" aria-selected="false">Kişiler</button><button role="tab" data-bolum="anket" aria-selected="false">Anket</button><button role="tab" data-bolum="soru" aria-selected="false">Soru-Cevap</button>
+          <button role="tab" data-bolum="sohbet" aria-selected="true">Sohbet</button><button role="tab" data-bolum="kisiler" aria-selected="false">Kişiler</button><button role="tab" data-bolum="anket" aria-selected="false">Anket</button><button role="tab" data-bolum="soru" aria-selected="false" title="Soru-cevap">Sorular</button><button role="tab" data-bolum="not" aria-selected="false" title="Herkesin birlikte yazdığı toplantı notu">Notlar</button>
         </div>
         <div class="bolum" data-bolum="sohbet">
           <div id="gSohbetListe"><div class="bilgi">Görüşme sohbeti kaydedilmez; yalnız şu an görüşmede olanlar görür.</div></div>
@@ -520,6 +526,10 @@
         <div class="bolum" data-bolum="soru" hidden>
           <div id="soruListe" class="liste"></div>
           <form id="soruForm"><input id="soruMetin" required maxlength="300" placeholder="Sorunu yaz…" autocomplete="off"><button class="ana">Sor</button></form>
+        </div>
+        <div class="bolum" data-bolum="not" hidden>
+          <textarea id="ortakNot" maxlength="20000" placeholder="Toplantı notları — herkes birlikte yazar, herkes görür…"></textarea>
+          <div class="not-alt"><span id="notDurum">Görüşme bitince toplantı notuna (Claude özeti) eklenir.</span><button type="button" id="notGonder">Kanala gönder</button></div>
         </div>
       </aside>
     </div>
@@ -2262,6 +2272,7 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
     payload.vuruslar.forEach((v) => { if (!durum.cagri.tahtaVuruslar.has(v.id)) tahtaVurusAl({ v: v.id, r: v.r, k: v.k, p: v.p, s: v.s, t: v.t }); });
   });
   icerik('isaret', isaretAl);
+  icerik('not', notAl);
   icerik('ekran-iste', ekranIstegiAl);
   icerik('ekran-cevap', ekranCevabiAl);
   icerik('tahta-sil', (payload) => { if (durum.cagri.tahtaVuruslar.delete(payload.v)) tahtaTumunuCiz(); });
@@ -2337,6 +2348,7 @@ async function cagridanAyril(gecis) {
   for (const id of [...c.esler.keys()]) esKapat(id);
   clearInterval(c.olcer); clearTimeout(c.altOdaSayac);
   sessizKopyaBirak(c); $('sessizUyari').hidden = true;
+  clearTimeout(notZamanlayici); $('ortakNot').value = ''; $('notDurum').textContent = 'Görüşme bitince toplantı notuna (Claude özeti) eklenir.';
   if (c.temizSes) { c.temizSes.durdur(); c.temizSes = null; }
   if (c.sfu) await c.sfu.oda.disconnect(false).catch(() => {}); // izleri kendimiz durdururuz
   arkaPlanDurdur();
@@ -3868,8 +3880,42 @@ function soruCiz() {
   if (!liste.length) kok.append(el('div', 'bilgi', 'Henüz soru yok. Sorunu yaz; diğerleri ▲ ile öne çıkarabilir.'));
 }
 
+// ---------- görüşme içi ortak not defteri ----------
+// Tüm metin yayınlanır, en son yazılan geçerli olur; yazanın imleci yerinde kalır.
+// ponytail: iki kişi aynı anda aynı yere yazarsa biri kaybolabilir; şikâyet gelirse Yjs gibi birleştirici eklenir.
+let notZamanlayici = 0;
+function notYayinla() {
+  const c = durum.cagri;
+  if (!c) return;
+  c.not = { metin: $('ortakNot').value.slice(0, 20000), zaman: Date.now(), ad: durum.ben.ad };
+  c.ch.send({ type: 'broadcast', event: 'not', payload: { ...c.not, kimden: durum.ben.id } });
+  $('notDurum').textContent = 'Kaydedildi · herkes görüyor';
+}
+function notAl(p) {
+  const c = durum.cagri;
+  if (!c || typeof p.metin !== 'string' || (c.not && c.not.zaman >= p.zaman)) return;
+  c.not = { metin: p.metin.slice(0, 20000), zaman: Number(p.zaman) || Date.now(), ad: String(p.ad || '').slice(0, 60) };
+  const t = $('ortakNot'), odakta = t.ownerDocument.activeElement === t, eski = t.value, bas = t.selectionStart, son = t.selectionEnd;
+  t.value = c.not.metin;
+  if (odakta) { // değişiklik imlecin önündeyse imleç de o kadar kayar
+    const fark = c.not.metin.length - eski.length, onuAyni = eski.slice(0, bas) === c.not.metin.slice(0, bas);
+    t.setSelectionRange(onuAyni ? bas : bas + fark, onuAyni ? son : son + fark);
+  }
+  $('notDurum').textContent = `✏️ ${c.not.ad} yazdı · ${new Date(c.not.zaman).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`;
+  panelUyarisi('not');
+}
+async function notuKanalaGonder() {
+  const c = durum.cagri, metin = $('ortakNot').value.trim();
+  if (!c || !metin) return;
+  const v = toplantiNotuVerisi(c), tam = `🗒️ Görüşme notları · ${tarihYaz(new Date().toISOString())}\n\n${metin}`;
+  if (tam.length <= 4000) await gonder(tam, null, { kanal: v.kanal });
+  else await dosyaGonder(new File([tam], 'Görüşme notları.txt', { type: 'text/plain;charset=utf-8' }));
+  $('notDurum').textContent = '✓ Kanala gönderildi';
+}
+
 function durumAktar(id) {
   const c = durum.cagri;
+  if (c.not && c.not.metin) c.ch.send({ type: 'broadcast', event: 'not', payload: { ...c.not, kimden: durum.ben.id } }); // yeni gelen de notu görsün
   if (!c.erp || (!c.anketler.size && !c.sorular.size)) return;
   const dahaErkenSahip = [...c.katilanlar].some(([x, g]) => x !== id && g.erp && (g.katilma < c.katilma || (g.katilma === c.katilma && x < durum.ben.id)));
   if (dahaErkenSahip) return;
@@ -3961,7 +4007,8 @@ function toplantiNotuVerisi(c) {
     baslik: `📝 Toplantı notu · ${tarihYaz(new Date(bas).toISOString())} · ${Math.max(1, Math.round((Date.now() - bas) / 60000))} dk\nKatılanlar: ${katilanlar.join(', ')}`,
     metin: ['KATILIMCILAR: ' + katilanlar.join(', '),
       '', 'KONUŞMA DÖKÜMÜ', ...c.dokum.map((d) => `[${saat(d.zaman)}] ${d.ad}: ${d.metin}`),
-      '', 'GÖRÜŞME SOHBETİ', ...c.sohbetKaydi.map((m) => `[${saat(m.zaman)}] ${m.ad}: ${m.metin}`)].join('\n'),
+      '', 'GÖRÜŞME SOHBETİ', ...c.sohbetKaydi.map((m) => `[${saat(m.zaman)}] ${m.ad}: ${m.metin}`),
+      ...(c.not && c.not.metin.trim() ? ['', 'KATILIMCILARIN ORTAK NOTLARI (elle yazıldı, güvenilir)', c.not.metin.trim()] : [])].join('\n'),
   };
 }
 async function toplantiNotuGonder(v) {
@@ -3984,7 +4031,8 @@ function otomatikNotVerisi(c, herkesIcin) {
   if (!c.erp || YEREL || !DOSYA_URL || c.altOda) return null;
   const sonSahip = herkesIcin || ![...c.katilanlar].some(([id, g]) => g.erp && izinli(id, g));
   const icerik = c.dokum.length + c.sohbetKaydi.length;
-  return sonSahip && c.dokum.length >= 3 && icerik > (c.notGitti || 0) ? toplantiNotuVerisi(c) : null;
+  const notVar = !!(c.not && c.not.metin.trim().length > 20); // ortak not tek başına da yeterli içerik
+  return sonSahip && (c.dokum.length >= 3 || notVar) && (icerik > (c.notGitti || 0) || notVar) ? toplantiNotuVerisi(c) : null;
 }
 
 // Başkasının bitmiş altyazı cümlesi seçilen dile çevrilip ayrı satırda gösterilir (döküm özgün dilde kalır).
@@ -4130,6 +4178,8 @@ function cagriDugmeleriniBagla() {
   $('ayrilDugme').onclick = () => cagridanAyril();
   $('ekranDugme').onclick = ekranPaylas;
   $('mikDugme').onclick = (e) => izAcKapa('ses', e.currentTarget);
+  $('ortakNot').oninput = () => { clearTimeout(notZamanlayici); $('notDurum').textContent = 'Yazılıyor…'; notZamanlayici = setTimeout(notYayinla, 300); };
+  $('notGonder').onclick = notuKanalaGonder;
   $('sessizAc').onclick = () => { $('sessizUyari').hidden = true; $('mikDugme').click(); };
   $('sessizKapat').onclick = () => { $('sessizUyari').hidden = true; if (durum.cagri.sessiz) durum.cagri.sessiz.susturma = Date.now() + 60000; };
   $('kamDugme').onclick = (e) => izAcKapa('video', e.currentTarget);
