@@ -673,6 +673,9 @@
     <label><input type="checkbox" id="ayarKamKapali"> Kameram kapalı başlasın</label>
     <label><input type="checkbox" id="ayarIsik"> Işığı artır</label>
     <label title="Klima, makine, klavye gibi gürültüleri yapay zekâyla siler; ses tarayıcıdan dışarı gitmez"><input type="checkbox" id="ayarGurultu"> Gürültü engelleme (önerilir)</label>
+    <h3>Toplantı notu</h3>
+    <label title="Görüşme bitince altyazı dökümü ve ortak notlardan Claude ile özet, kararlar ve aksiyonlar çıkarılıp kanala yazılır"><input type="checkbox" id="ayarOtoNot"> Görüşme bitince toplantı notunu otomatik hazırla</label>
+    <div class="ust-bilgi">Kapalıyken not yalnız görüşme içindeki not düğmesine bastığında hazırlanır. Otomatik not için CC Altyazı açıkken konuşulmuş olması ya da Notlar sekmesine yazılmış olması gerekir.</div>
     <h3>Arka plan</h3>
     <div id="ayarArka" class="arka-izgara" role="radiogroup" aria-label="Arka plan"></div>
     <h3>Bildirimler</h3>
@@ -1699,6 +1702,8 @@ function ayarlariAc() {
   $('ayarKamKapali').checked = localStorage.getItem('ekip_kam_kapali') === '1';
   $('ayarIsik').checked = localStorage.getItem('ekip_isik') === '1';
   $('ayarGurultu').checked = gurultuAcik();
+  $('ayarOtoNot').checked = otoNotAcik();
+  $('ayarOtoNot').onchange = (e) => localStorage.setItem('ekip_oto_not', e.target.checked ? '1' : '0');
   $('ayarGurultu').onchange = (e) => { localStorage.setItem('ekip_gurultu', e.target.checked ? '1' : '0'); gurultuUygula(); };
   arkaIzgarasi($('ayarArka'), (tur) => {
     localStorage.setItem('ekip_arka', tur); arkaIsaretle(tur);
@@ -2008,6 +2013,7 @@ async function gurultuZinciri(mik) {
   ctx.createMediaStreamSource(new MediaStream([mik])).connect(dugum); dugum.connect(hedef);
   return { asil: mik, iz: hedef.stream.getAudioTracks()[0], durdur: () => { dugum.destroy(); ctx.close().catch(() => {}); } };
 }
+const otoNotAcik = () => localStorage.getItem('ekip_oto_not') !== '0'; // varsayılan açık
 const gurultuAcik = () => localStorage.getItem('ekip_gurultu') !== '0';
 async function gurultuUygula() {
   const c = durum.cagri;
@@ -4105,7 +4111,7 @@ async function ozetCikar() {
 // Görüşmeden çıkarken: içeride başka toplantı sahibi kalmadıysa (ya da herkes için bitirildiyse) ve konuşulanlar
 // elle alınan nottan beri arttıysa not kendiliğinden çıkar. Yeterli döküm yoksa (altyazı kapalıydı) hiçbir şey yapılmaz.
 function otomatikNotVerisi(c, herkesIcin) {
-  if (!c.erp || YEREL || !DOSYA_URL || c.altOda) return null;
+  if (!c.erp || YEREL || !DOSYA_URL || c.altOda || !otoNotAcik()) return null;
   const sonSahip = herkesIcin || ![...c.katilanlar].some(([id, g]) => g.erp && izinli(id, g));
   const icerik = c.dokum.length + c.sohbetKaydi.length;
   const notVar = !!(c.not && c.not.metin.trim().length > 20); // ortak not tek başına da yeterli içerik
