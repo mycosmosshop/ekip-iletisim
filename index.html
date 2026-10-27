@@ -77,6 +77,8 @@
   .oge.secili::before { content: ""; position: absolute; left: -8px; top: 7px; bottom: 7px; width: 4px; border-radius: 0 4px 4px 0; background: var(--sari); }
   .oge .sayac { margin-left: auto; background: var(--sari); color: var(--murekkep); border-radius: 10px; font-size: 12px; font-weight: 700; padding: 0 7px; }
   .oge .cagri-isareti { margin-left: auto; color: var(--sari); font-size: 12px; font-weight: 600; }
+  .oge.ben { cursor: default; }
+  .oge.bos { cursor: default; color: var(--murekkep-soluk); font-size: 13.5px; }
   .oge .not { margin-left: auto; color: var(--murekkep-soluk); font-size: 12px; }
   #kisiListesi .oge { padding: 5px 12px; }
   #bildirimDugme, #kurDugme { margin: 10px 12px 0; justify-content: center; background: transparent; color: var(--murekkep-yazi); border-color: var(--murekkep-2); }
@@ -407,6 +409,8 @@
   #onizleme strong { font: 700 20px/1.2 var(--yazi-baslik); }
   #onizlemeVideo { width: 100%; aspect-ratio: 16 / 9; background: var(--video); border-radius: 14px; transform: scaleX(-1); object-fit: cover; }
   #onizleme meter { width: 100%; }
+  .kisi .ikon-dugme { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border-radius: 50%; }
+  .kisi .ikon-dugme.tehlike { background: var(--kirmizi); color: #fff; border-color: transparent; }
   #onizleme .cihaz-sec label { display: flex; gap: 6px; align-items: center; font-size: 13.5px; color: var(--soluk); flex: 1; min-width: 200px; }
   #onizleme .cihaz-sec select { flex: 1; min-width: 0; padding: 5px 8px; }
   #onizleme [aria-pressed="false"] { background: var(--kirmizi); border-color: var(--kirmizi); color: #fff; }
@@ -757,6 +761,8 @@
     <div class="satir2 cihaz-sec">
       <label>Kamera <select id="onKamSec"></select></label>
       <label>Mikrofon <select id="onMikSec"></select></label>
+      <label>Hoparlör <select id="onHopSec"></select></label>
+      <button type="button" id="onSesDene" title="Seçili hoparlörden kısa bir ses çalar">Sesi dene</button>
     </div>
     <div class="satir2">
       <button type="button" id="onMik" aria-pressed="true"><i data-lucide="mic"></i>Mikrofon</button>
@@ -1553,16 +1559,27 @@ function kanallariCiz() {
 
 function kisileriCiz() {
   const kok = $('kisiListesi'); kok.replaceChildren();
+  // En üstte sen: görüşmedeysen ve ERP'liysen toplantı yöneticisisin (misafiri içeri alan, susturan).
+  if (durum.ben && !durum.ben.konuk) {
+    const ben = el('div', 'oge ben'), c = durum.cagri;
+    ben.append(avatar(durum.ben.ad, durum.durumum, localStorage.getItem('ekip_foto')), el('span', null, durum.ben.ad + ' (sen)'));
+    const not = c ? (c.erp ? '👑 yönetici · görüşmede' : 'görüşmede') : { mesgul: 'meşgul', uzakta: 'uzakta' }[durum.durumum];
+    if (not) ben.append(el('span', 'not', not));
+    ben.title = c && c.erp ? 'Bu görüşmenin yöneticisisin: gelenleri içeri alır, susturur, çıkarırsın' : '';
+    kok.append(ben);
+  }
   for (const [id, k] of durum.cevrimici) {
     if (id === durum.ben.id) continue;
     const o = el('div', 'oge'); o.append(avatar(k.ad, k.durum, profilFotolari.get(id)), el('span', null, k.ad));
-    const not = k.cagri ? 'görüşmede' : { mesgul: 'meşgul', uzakta: 'uzakta' }[k.durum];
+    // ERP kullanıcıları görüşmede yöneticidir; aynı görüşmedeyse bunu göster.
+    const ayniGorusme = k.cagri && durum.cagri && k.cagri === cagriKanali();
+    const not = k.cagri ? (ayniGorusme ? '👑 yönetici · görüşmede' : 'görüşmede') : { mesgul: 'meşgul', uzakta: 'uzakta' }[k.durum];
     if (not) o.append(el('span', 'not', not));
     o.title = 'Birebir sohbet aç';
     o.onclick = () => { const dk = dmKanal(durum.ben.id, id); durum.dmAdlari.set(dk, k.ad); kanalaGec(dk); };
     kok.append(o);
   }
-  if (kok.children.length === 0) kok.append(el('div', 'oge', 'Şu an kimse yok'));
+  if (durum.cevrimici.size <= (durum.cevrimici.has(durum.ben?.id) ? 1 : 0)) kok.append(el('div', 'oge bos', 'Başka kimse yok'));
 }
 
 const zaman = (t) => Date.parse(t);
@@ -1908,6 +1925,7 @@ function lobiDurumuYay() {
   const oda = cagri && durum.cagri.kaynakKanal ? durum.cagri.anaKanal || durum.cagri.kanal : null;
   durum.lobi.track({ ad: durum.ben.ad, cagri, oda, kanallar: [...durum.kanallar].filter((x) => !ozelMi(x)), durum: durum.durumum,
                      foto: localStorage.getItem('ekip_foto') || null });
+  kisileriCiz(); // kendi satırındaki "görüşmede / yönetici" bilgisi
 }
 
 // Lobiden gelen profil resmi saklanır; değiştiyse true (mesajlar yeniden çizilsin).
@@ -2540,12 +2558,12 @@ async function gorusmedenCikti(not) {
   if (KONUK) { $('girisBaslik').textContent = not; $('girisDugme').hidden = true; } else $('uyari').textContent = not;
 }
 
+function ikonlu(sinif, ikon, yedek) {
+  const b = el('button', sinif), svg = window.lucide && lucide.icons && lucide.icons[ikon] ? lucide.createElement(lucide.icons[ikon]) : null;
+  if (svg) { svg.setAttribute('width', '16'); svg.setAttribute('height', '16'); b.append(svg); } else b.textContent = yedek; // simge kitaplığı yüklenmediyse yazı
+  return b;
+}
 function yonetimDugmeleri(karo, id) {
-  const ikonlu = (sinif, ikon, yedek) => {
-    const b = el('button', sinif), svg = window.lucide && lucide.icons && lucide.icons[ikon] ? lucide.createElement(lucide.icons[ikon]) : null;
-    if (svg) { svg.setAttribute('width', '16'); svg.setAttribute('height', '16'); b.append(svg); } else b.textContent = yedek; // simge kitaplığı yüklenmediyse yazı
-    return b;
-  };
   const y = el('div', 'yonetim'), sus = ikonlu(null, 'MicOff', 'Sustur'), kam = ikonlu(null, 'VideoOff', 'Kamera'), cik = ikonlu('tehlike', 'UserX', 'Çıkar');
   sus.title = 'Mikrofonunu kapat'; sus.setAttribute('aria-label', 'Mikrofonunu kapat');
   kam.title = 'Kamerasını kapat'; kam.setAttribute('aria-label', 'Kamerasını kapat');
@@ -3839,6 +3857,14 @@ async function onizlemeGoster(yerel) {
       if (!s.options.length) s.append(el('option', null, 'Bulunamadı'));
       s.disabled = !liste.some((c) => c.kind === tur);
     }
+    // Hoparlör: tarayıcı çıkış seçimini destekliyorsa (Chrome/Edge); desteklemiyorsa sistem varsayılanı kullanılır.
+    const hop = $('onHopSec'), destek = 'setSinkId' in HTMLMediaElement.prototype, secili = cihazTercihi().hop || 'default';
+    const cikislar = liste.filter((c) => c.kind === 'audiooutput');
+    hop.replaceChildren(...(cikislar.length ? cikislar : [{ deviceId: 'default', label: 'Sistem varsayılanı' }]).map((c, i) => {
+      const o = el('option', null, c.label || `Hoparlör ${i + 1}`); o.value = c.deviceId; o.selected = c.deviceId === secili; return o;
+    }));
+    hop.disabled = !destek || !cikislar.length;
+    hop.title = destek ? '' : 'Bu tarayıcı hoparlör seçimini desteklemiyor; sistem varsayılanı kullanılır';
   };
   const cihazDegisti = async (anahtar, deviceId) => {
     const tur = anahtar === 'mik' ? 'audio' : 'video';
@@ -3856,6 +3882,18 @@ async function onizlemeGoster(yerel) {
   };
   $('onKamSec').onchange = (e) => cihazDegisti('kam', e.target.value);
   $('onMikSec').onchange = (e) => cihazDegisti('mik', e.target.value);
+  $('onHopSec').onchange = (e) => { const t = cihazTercihi(); t.hop = e.target.value; localStorage.setItem('ekip_cihaz', JSON.stringify(t)); };
+  // Kullanıcı basınca seçili hoparlörden 0,6 sn'lik iki tonlu kısa bir ses (görüşmede karşıyı duyup duymayacağını dener).
+  $('onSesDene').onclick = async () => {
+    const ctx = new AudioContext(), hedef = ctx.createMediaStreamDestination(), g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.6);
+    for (const [f, bas] of [[660, 0], [880, 0.3]]) { const o = ctx.createOscillator(); o.frequency.value = f; o.connect(g); o.start(ctx.currentTime + bas); o.stop(ctx.currentTime + bas + 0.3); }
+    g.connect(hedef);
+    const a = new Audio(); a.srcObject = hedef.stream;
+    const hop = cihazTercihi().hop; if (hop && a.setSinkId) await a.setSinkId(hop).catch(() => {});
+    await a.play().catch(() => {});
+    setTimeout(() => { a.srcObject = null; ctx.close().catch(() => {}); }, 900);
+  };
   dugmeleriCiz(); cihazSec();
   const onKamYenilendi = () => { if (!d.open) return; dugmeleriCiz(); arkaGoster(); kamDenetle(); kamerayiKoru(yerel, onKamYenilendi); };
   kamerayiKoru(yerel, onKamYenilendi);
@@ -4002,14 +4040,14 @@ function kisileriCizCagri() {
   }
   $('kisilerListe').replaceChildren(...ust, el('div', 'kisi-baslik', `Görüşmede (${liste.length})`), ...liste.map(([id, g]) => {
     const s = el('div', 'kisi'), sira = c.elSirasi.get(id);
-    s.append(avatar(id === durum.ben.id ? durum.ben.ad : g.ad), el('span', 'ad', g.ad), el('span', null, [g.erp ? '👑' : '', sira ? '✋' + sira : '', g.mik === false ? '🔇' : ''].join(' ')));
+    s.append(avatar(id === durum.ben.id ? durum.ben.ad : g.ad), el('span', 'ad', g.ad), el('span', null, [g.erp ? '👑 yönetici' : '', sira ? '✋' + sira : '', g.mik === false ? '🔇' : ''].filter(Boolean).join(' · ')));
     if (c.erp && id !== durum.ben.id) {
-      const dugme = (yazi, baslik, fn) => { const b = el('button', null, yazi); b.title = baslik; b.setAttribute('aria-label', baslik); b.onclick = fn; s.append(b); };
-      if (g.mik !== false) dugme('🔇', 'Mikrofonunu kapat', () => komutGonder('sustur', id));
-      if (g.kam !== false) dugme('📷✕', 'Kamerasını kapat', () => komutGonder('kamera-kapat', id));
-      if (!g.erp && c.ekranIzinli.has(id)) dugme('🖥️✕', 'Ekran paylaşım iznini geri al', () => ekranIzni(id, false));
-      if (sira) dugme('✋↓', 'Elini indir', () => komutGonder('el-indir', id));
-      dugme('⛔', 'Görüşmeden çıkar', () => disariCikar(id));
+      const dugme = (ikon, yedek, baslik, fn, sinif) => { const b = ikonlu(sinif || 'ikon-dugme', ikon, yedek); b.title = baslik; b.setAttribute('aria-label', baslik); b.onclick = fn; s.append(b); };
+      if (g.mik !== false) dugme('MicOff', 'Sustur', 'Mikrofonunu kapat', () => komutGonder('sustur', id));
+      if (g.kam !== false) dugme('VideoOff', 'Kamera', 'Kamerasını kapat', () => komutGonder('kamera-kapat', id));
+      if (!g.erp && c.ekranIzinli.has(id)) dugme('ScreenShareOff', 'Ekran', 'Ekran paylaşım iznini geri al', () => ekranIzni(id, false));
+      if (sira) dugme('Hand', 'El', 'Elini indir', () => komutGonder('el-indir', id));
+      dugme('UserX', 'Çıkar', 'Görüşmeden çıkar', () => disariCikar(id), 'ikon-dugme tehlike');
     }
     return s;
   }), el('div', 'bilgi', '👑 toplantı sahibi · ✋ el kaldırdı · 🔇 mikrofonu kapalı'));
