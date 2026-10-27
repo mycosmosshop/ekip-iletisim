@@ -318,3 +318,55 @@ end $$;
 revoke all on function public.ekip_kanal_sil(text) from public;
 grant execute on function public.ekip_kanal_sil(text) to authenticated;
 notify pgrst, 'reload schema';
+
+-- 13. Görüşme linkini açanın kimliği: link oluşturulurken ERP'li kişi rastgele bir anahtar üretir, yalnız özeti (sha256) burada saklanır.
+--     Anahtarı tarayıcısında tutan kişi ERP oturumu olmasa da anonim olarak ekip_gorusme_kanit ile kişiye bağlı, 12 saatlik imzalı
+--     bir kanıt alır; diğer katılımcılar kanıtı ekip_gorusme_kanit_dogrula ile sunucuya doğrulatır. Tablo kurallarsız: yalnız işlevlerle erişilir.
+create table if not exists public.ekip_gorusme_sahip (
+  kod       text primary key check (kod ~ '^[a-z0-9]{16,40}$'),
+  sahip_id  uuid not null,
+  ozet      text not null check (ozet ~ '^[0-9a-f]{64}$'),
+  olusma    timestamptz not null default now()
+);
+alter table public.ekip_gorusme_sahip enable row level security;
+
+insert into public.ekip_sistem (ad, deger) values ('gorusme_hmac', encode(extensions.gen_random_bytes(32), 'hex'))
+  on conflict (ad) do nothing;
+
+create or replace function public.ekip_gorusme_kaydet(k text, ozet text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.ekip_onayli() then raise exception 'ERP onayı yok'; end if;
+  insert into public.ekip_gorusme_sahip (kod, sahip_id, ozet) values (k, auth.uid(), ozet) on conflict (kod) do nothing;
+end $$;
+
+-- ponytail: özet karşılaştırması sabit zamanlı değil; anahtar 192 bit rastgele olduğundan zamanlama saldırısı pratik değil.
+create or replace function public.ekip_gorusme_kanit(k text, anahtar text, kisi text) returns text
+language plpgsql security definer set search_path = public, extensions as $$
+declare o text; gizli text; son bigint;
+begin
+  select g.ozet into o from public.ekip_gorusme_sahip g where g.kod = k;
+  if o is null or anahtar is null or encode(digest(anahtar, 'sha256'), 'hex') <> o then return null; end if;
+  select deger into gizli from public.ekip_sistem where ad = 'gorusme_hmac';
+  son := extract(epoch from now())::bigint + 43200;
+  return son || '.' || encode(hmac(k || '|' || kisi || '|' || son, gizli, 'sha256'), 'hex');
+end $$;
+
+create or replace function public.ekip_gorusme_kanit_dogrula(k text, kisi text, kanit text) returns boolean
+language plpgsql security definer set search_path = public, extensions as $$
+declare gizli text; son bigint;
+begin
+  if kanit is null or kanit !~ '^[0-9]{9,12}\.[0-9a-f]{64}$' then return false; end if;
+  son := split_part(kanit, '.', 1)::bigint;
+  if son < extract(epoch from now()) then return false; end if;
+  select deger into gizli from public.ekip_sistem where ad = 'gorusme_hmac';
+  return encode(hmac(k || '|' || kisi || '|' || son, gizli, 'sha256'), 'hex') = split_part(kanit, '.', 2);
+end $$;
+
+revoke all on function public.ekip_gorusme_kaydet(text, text) from public;
+revoke all on function public.ekip_gorusme_kanit(text, text, text) from public;
+revoke all on function public.ekip_gorusme_kanit_dogrula(text, text, text) from public;
+grant execute on function public.ekip_gorusme_kaydet(text, text) to authenticated;
+grant execute on function public.ekip_gorusme_kanit(text, text, text) to anon, authenticated;
+grant execute on function public.ekip_gorusme_kanit_dogrula(text, text, text) to anon, authenticated;
+notify pgrst, 'reload schema';

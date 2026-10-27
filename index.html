@@ -781,6 +781,20 @@ function avatar(ad, durum, foto) {
   return a;
 }
 // Tahmin edilemez görüşme odası kodu (misafir bağlantısı ?gorusme=… bununla açılır)
+// Görüşme sahipliği: link açılırken ERP'li kişi rastgele bir anahtar üretir; veritabanında yalnız özeti (sha256) durur, anahtar bu
+// tarayıcıda kalır. ERP oturumu olmasa da anahtarla sunucudan kişiye bağlı, 12 saatlik imzalı bir kanıt alınır; diğer katılımcılar
+// kanıtı yine sunucuya doğrulatır (kurulum.sql 13). Anahtar yoksa ya da geçersizse kişi sıradan misafirdir.
+const sahipAnahtarlari = () => { try { return JSON.parse(localStorage.getItem('ekip_sahip_anahtarlari') || '{}'); } catch (e) { return {}; } };
+const onaltilik = (b) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, '0')).join('');
+async function sahipKaydet(kod) {
+  if (YEREL || !durum.tabloVar || durum.ben.konuk) return;
+  const anahtar = onaltilik(crypto.getRandomValues(new Uint8Array(24)));
+  const ozet = onaltilik(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(anahtar)));
+  const { error } = await sb.rpc('ekip_gorusme_kaydet', { k: kod, ozet });
+  if (error) { console.warn('Görüşme sahipliği kaydedilemedi', error.message); return; }
+  const a = sahipAnahtarlari(); a[kod] = anahtar;
+  localStorage.setItem('ekip_sahip_anahtarlari', JSON.stringify(Object.fromEntries(Object.entries(a).slice(-50)))); // son 50 görüşme
+}
 const yeniKod = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 20);
 // Görüşmenin ait olduğu kanal: açık kanal görüşmesi misafir odasında yürür ama kanalına bağlı görünür
 const cagriKanali = () => durum.cagri && (durum.cagri.kaynakKanal || durum.cagri.anaKanal || durum.cagri.kanal);
@@ -1083,6 +1097,7 @@ async function toplantiPlanla() {
   if (isNaN(bas)) return;
   const bit = new Date(bas.getTime() + Number($('planSure').value) * 60000);
   const kod = yeniKod();
+  await sahipKaydet(kod);
   const t = { konu: $('planKonu').value.trim(), bas: bas.toISOString(), bit: bit.toISOString(), not: $('planNot').value.trim(),
               link: `${location.origin}${location.pathname}?gorusme=${kod}` };
   $('planPanel').hidden = true; $('planPanel').reset();
@@ -2231,10 +2246,26 @@ function izinli(id, g) {
   return !!(g && g.erp) || sahipListesi('kabuller').has(id);
 }
 
+// ERP oturumsuz sahip, presence'ta sunucunun imzaladığı kanıtı taşır. Kanıt doğrulanana kadar (ve geçersizse) sıradan misafir sayılır.
+const sahipKanitlari = new Map(); // `${kimlik}|${kanıt}` -> true / false / 'bekliyor'
+function sahipKontrol(c, id, g) {
+  if (!g.sahipKanit) return g;
+  const anahtar = id + '|' + g.sahipKanit, durumu = sahipKanitlari.get(anahtar);
+  if (durumu === true) return g;
+  if (durumu === undefined) {
+    sahipKanitlari.set(anahtar, 'bekliyor');
+    const kod = c.kanal.replace(/^misafir-/, '').split('~')[0];
+    sb.rpc('ekip_gorusme_kanit_dogrula', { k: kod, kisi: id, kanit: g.sahipKanit }).then(
+      ({ data }) => { sahipKanitlari.set(anahtar, data === true); if (durum.cagri === c) eslesmeyiGuncelle(); },
+      () => sahipKanitlari.delete(anahtar));
+  }
+  return { ...g, erp: false };
+}
+
 function eslesmeyiGuncelle() {
   const c = durum.cagri, onceki = c.katilanlar;
   c.katilanlar = new Map();
-  for (const [id, g] of Object.entries(c.ch.presenceState())) if (id !== durum.ben.id) c.katilanlar.set(id, g[g.length - 1]);
+  for (const [id, g] of Object.entries(c.ch.presenceState())) if (id !== durum.ben.id) c.katilanlar.set(id, sahipKontrol(c, id, g[g.length - 1]));
   if (cikarildi(durum.ben.id)) return cikarildin();
   const benIzinli = izinli(durum.ben.id, { erp: c.erp });
   $('beklemeMesaji').hidden = benIzinli;
@@ -2376,7 +2407,9 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
   if (!ayar.ana && !KONUK && !kanal.startsWith('misafir-') && !kanal.startsWith('dm:') && !ozelMi(kanal)) {
     const oda = [...durum.cevrimici.values()].find((k) => k.cagri === kanal && k.oda);
     ayar = { ...ayar, kaynak: kanal };
-    kanal = oda ? oda.oda : 'misafir-' + yeniKod();
+    const kod = yeniKod();
+    if (!oda) await sahipKaydet(kod);
+    kanal = oda ? oda.oda : 'misafir-' + kod;
   }
   durum.katiliyor = true;
   const misafir = kanal.startsWith('misafir-');
@@ -2395,13 +2428,13 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
   const ch = sb.channel('ekip-cagri:' + kanal, { config: { presence: { key: durum.ben.id }, broadcast: { self: false }, private: OZEL && !misafir } });
   durum.cagri = { kanal, ch, yerel, ice, ekran: null, esler: new Map(), bekleyenIce: new Map(), katilma: Date.now(),
                   el: false, sesCtx: null, analizler: new Map(), konusma: new Map(), karisik: null, ekranSes: null, gOkunmamis: 0,
-                  erp: !durum.ben.konuk, katilanlar: new Map(), kabuller: new Set(ayar.kabul || []), cikarilanlar: new Set(ayar.cikar || []), bildirilen: new Set(),
+                  erp: !durum.ben.konuk || !!durum.ben.sahipKanit, katilanlar: new Map(), kabuller: new Set(ayar.kabul || []), cikarilanlar: new Set(ayar.cikar || []), bildirilen: new Set(),
                   altyazi: false, altyazilar: new Map(), dokum: [], tanima: null,
                   tahta: false, tahtaVuruslar: new Map(), tahtaKutu: null, tahtaTuval: null,
                   baslangic: ayar.baslangic || Date.now(), anaKanal: ayar.ana || null, anaCh: null, kaynakKanal: ayar.kaynak || null, altOda: ayar.altOda || null, altOdalar: ayar.altOdalar || null,
                   kilit: false, izinler: { sohbet: true, ekran: 'izin', tepki: true }, ekranIzinli: new Set(), ekranIstekleri: new Map(), elSirasi: new Map(), sohbetKaydi: [],
                   anketler: new Map(), sorular: new Map(), aktarilan: new Set(), sfu: null, sfuDenendi: false, duzen: localStorage.getItem('ekip_duzen') || 'oto', ceviri: '',
-                  katilim: ayar.katilim || new Map([[durum.ben.id, { ad: durum.ben.ad, erp: !durum.ben.konuk, giris: new Date().toISOString(), cikis: null }]]) };
+                  katilim: ayar.katilim || new Map([[durum.ben.id, { ad: durum.ben.ad, erp: !durum.ben.konuk || !!durum.ben.sahipKanit, giris: new Date().toISOString(), cikis: null }]]) };
   const c = durum.cagri;
   const kamYenilendi = () => {
     if (durum.cagri !== c) return;
@@ -2455,8 +2488,8 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
   $('sahipMenu').hidden = !c.erp;
   $('anketForm').hidden = !c.erp;
   $('kayitDugme').hidden = !c.erp || !window.MediaRecorder;
-  $('ozetDugme').hidden = $('ceviriSatiri').hidden = !c.erp || YEREL; // Claude yalnız ERP oturumuyla
-  if (c.erp && !YEREL) gSohbetEkle({ ad: '📝 ', metin: 'Altyazı (CC) açık olursa görüşme bitince toplantı notu (özet, kararlar, aksiyonlar) kanala kendiliğinden düşer.' }, true);
+  $('ozetDugme').hidden = $('ceviriSatiri').hidden = !c.erp || YEREL || durum.ben.konuk; // Claude yalnız ERP oturumuyla
+  if (c.erp && !YEREL && !durum.ben.konuk) gSohbetEkle({ ad: '📝 ', metin: 'Altyazı (CC) açık olursa görüşme bitince toplantı notu (özet, kararlar, aksiyonlar) kanala kendiliğinden düşer.' }, true);
   $('secCeviri').value = '';
   ['izinSohbet', 'izinTepki'].forEach((id) => { $(id).checked = true; });
   $('izinEkran').value = 'izin';
@@ -2488,7 +2521,7 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
 
 const cagriDurumuYay = () => {
   const c = durum.cagri, mik = c.yerel.getAudioTracks()[0];
-  c.ch.track({ ad: durum.ben.ad, katilma: c.katilma, bas: c.baslangic, el: c.el, erp: c.erp, kabuller: [...c.kabuller], cikarilanlar: [...c.cikarilanlar],
+  c.ch.track({ ad: durum.ben.ad, katilma: c.katilma, bas: c.baslangic, el: c.el, erp: c.erp, sahipKanit: durum.ben.sahipKanit || null, kabuller: [...c.kabuller], cikarilanlar: [...c.cikarilanlar],
                kayit: !!c.kayit, altyazi: c.altyazi, tahta: c.tahta, mik: !!mik && mik.enabled, ekran: !!c.ekran, sfu: !!c.sfu,
                kilit: c.kilit, izinler: c.izinler, ekranIzinli: [...c.ekranIzinli], sureDk: c.sureDk || 0, kam: !!c.yerel.getVideoTracks()[0]?.enabled,
                foto: localStorage.getItem('ekip_foto') || null });
@@ -2556,7 +2589,9 @@ async function cagridanAyril(gecis) {
 
 // ---------- görüşme bağlantısı ve dosya ----------
 async function baglantiOlustur() {
-  await cagriyaKatil('misafir-' + yeniKod());
+  const kod = yeniKod();
+  await sahipKaydet(kod);
+  await cagriyaKatil('misafir-' + kod);
   if (durum.cagri) davetGoster(); // önizlemede vazgeçilmediyse
 }
 
@@ -2711,7 +2746,7 @@ async function kayitBaslat() {
   k.tur = k.kaydedici.mimeType.split(';')[0] || 'video/webm';
   const kanalAdi = k.kanal.startsWith('dm:') ? 'birebir' : '#' + k.kanal;
   k.ad = `Görüşme kaydı ${k.baslangic.toLocaleString('tr-TR').replace(/[/:]/g, '-')} ${kanalAdi}.${k.tur === 'video/mp4' ? 'mp4' : 'webm'}`;
-  k.yukleyici = c.erp && !YEREL && DOSYA_URL ? driveYukleyici(k.ad, k.tur, k.kanal) : null;
+  k.yukleyici = c.erp && !YEREL && DOSYA_URL && !durum.ben.konuk ? driveYukleyici(k.ad, k.tur, k.kanal) : null;
   k.kaydedici.ondataavailable = (e) => {
     if (!e.data.size) return;
     k.parcalar.push(e.data);
@@ -3085,7 +3120,7 @@ async function dokumKaydet() {
   const metin = c.dokum.map((d) => `[${new Date(d.zaman).toLocaleTimeString('tr-TR')}] ${d.ad}: ${d.metin}`).join('\n');
   const ad = `Görüşme dökümü ${new Date().toLocaleString('tr-TR').replace(/[/:]/g, '-')}.txt`;
   const dosya = new File([metin], ad, { type: 'text/plain;charset=utf-8' });
-  if (c.erp && !YEREL && DOSYA_URL) return dosyaGonder(dosya);
+  if (c.erp && !YEREL && DOSYA_URL && !durum.ben.konuk) return dosyaGonder(dosya);
   indir(dosya, ad);
 }
 
@@ -3102,11 +3137,12 @@ async function konukBasla() {
   document.body.classList.add('konuk');
   // Bağlantıyı açan ERP kullanıcısıysa misafir gibi beklemez, toplantı sahibi olarak katılır.
   const erp = YEREL ? null : await erpKimligi();
-  $('girisBaslik').textContent = erp ? 'Görüşmeye katıl (ERP hesabınla)' : 'Görüşmeye katıl';
+  const sahipAnahtar = !erp && !YEREL ? sahipAnahtarlari()[KONUK] : null; // bu linki bu tarayıcıda ERP'li biri açmış
+  $('girisBaslik').textContent = erp ? 'Görüşmeye katıl (ERP hesabınla)' : sahipAnahtar ? 'Görüşmeye toplantı sahibi olarak katıl' : 'Görüşmeye katıl';
   $('girisDugme').textContent = 'Katıl';
   $('girisAd').value = erp ? erp.ad : sessionStorage.getItem('ekip_ad') || '';
   $('girisAd').readOnly = !!erp;
-  $('erpSor').hidden = !!erp || YEREL; // ERP oturumu yoksa toplantıyı açan kişiye yol göster
+  $('erpSor').hidden = !!erp || YEREL || !!sahipAnahtar; // ERP oturumu yoksa toplantıyı açan kişiye yol göster
   $('giris').hidden = false;
   cagriDugmeleriniBagla();
   $('girisForm').onsubmit = async (e) => {
@@ -3114,7 +3150,14 @@ async function konukBasla() {
     const ad = $('girisAd').value.trim();
     if (!ad) return;
     if (erp) durum.ben = erp;
-    else { sessionStorage.setItem('ekip_ad', ad); durum.ben = await kimlikAl(); }
+    else {
+      sessionStorage.setItem('ekip_ad', ad); durum.ben = await kimlikAl();
+      if (sahipAnahtar) {
+        const { data } = await sb.rpc('ekip_gorusme_kanit', { k: KONUK, anahtar: sahipAnahtar, kisi: durum.ben.id });
+        if (data) durum.ben.sahipKanit = data;
+        else { const a = sahipAnahtarlari(); delete a[KONUK]; localStorage.setItem('ekip_sahip_anahtarlari', JSON.stringify(a)); } // sunucu tanımıyor: eski/yanlış anahtar
+      }
+    }
     $('giris').hidden = true; $('uygulama').hidden = false;
     await cagriyaKatil('misafir-' + KONUK);
     if (!durum.cagri) { $('uygulama').hidden = true; $('giris').hidden = false; } // önizlemede vazgeçti
@@ -4260,7 +4303,7 @@ async function ozetCikar() {
 // Otomatik not şartları: ERP görüşmesi, ayar açık, bu tarayıcı ERP'li son kişi, yeterli içerik (en az 2 yazıya çevrilmiş
 // konuşma satırı ya da ortak not) ve son nottan sonra yeni içerik. Çıkmayan nedeni kullanıcıya söylenir (sessizce atlanmaz).
 const notDurumu = (c, herkesIcin) => {
-  if (!c.erp || YEREL || !DOSYA_URL || c.altOda) return { neden: '' }; // ERP dışı ya da alt oda: not beklenmez
+  if (!c.erp || YEREL || !DOSYA_URL || c.altOda || durum.ben.konuk) return { neden: '' }; // ERP dışı ya da alt oda: not beklenmez
   if (!otoNotAcik()) return { neden: '' };
   const sonSahip = herkesIcin || ![...c.katilanlar].some(([id, g]) => g.erp && izinli(id, g));
   if (!sonSahip) return { neden: 'Görüşmede başka ERP kullanıcısı kaldı; not, ERP’li son kişi çıkınca onun tarayıcısından hazırlanır.' };
