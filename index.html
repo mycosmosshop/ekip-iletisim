@@ -428,6 +428,11 @@
   .agac-grup .say { margin-left: auto; font-size: 11.5px; opacity: .8; }
   .agac-oge { display: block; padding: 3px 8px 3px 22px; border-radius: 6px; font-size: 12.5px; color: var(--murekkep-yazi); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .agac-oge:hover { background: var(--murekkep-2); }
+  .agac-kisi { display: flex; align-items: center; gap: 7px; padding: 3px 8px 3px 20px; cursor: default; }
+  .agac-kisi .avatar { width: 20px; height: 20px; font-size: 10px; flex: none; }
+  .agac-kisi span:not(.rol) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .agac-kisi .rol { margin-left: auto; font-size: 11px; }
+  .agac-katilim .agac-grup { color: var(--sari); }
   .agac-bos { padding: 2px 8px 4px 22px; font-size: 12px; color: var(--murekkep-soluk); }
   @media (prefers-reduced-motion: reduce) { .agac-grup .ok { transition: none; } }
   #ogePenceresi { border: 0; border-radius: 18px; background: var(--panel); color: var(--yazi); padding: 22px; width: min(640px, 94vw); max-height: 92vh; overflow: auto; box-shadow: var(--golge); }
@@ -1498,6 +1503,34 @@ function ogeIslemleriKur() {
   };
 }
 
+// Kanalın görüşmesindekiler kanalın altında (ağaç gibi) görünür. Kendi görüşmende içeri alınmış herkes (misafirler dahil),
+// başka kanalların görüşmesinde lobideki ERP kullanıcıları (misafirler lobiye girmez). ERP kullanıcıları görüşmede yöneticidir.
+function gorusmedekiler(k) {
+  const c = durum.cagri;
+  // Bağlantıyla açılan görüşme (misafir odası) başlatıldığı kanalın altında görünür.
+  const benimKanal = c && (c.kaynakKanal || c.anaKanal || (c.kanal.startsWith('misafir-') ? c.gorunurKanal : c.kanal));
+  if (c && benimKanal === k) {
+    return [{ id: durum.ben.id, ad: durum.ben.ad + ' (sen)', yonetici: c.erp, ben: true },
+            ...[...c.katilanlar].filter(([id, g]) => izinli(id, g)).map(([id, g]) => ({ id, ad: g.ad, yonetici: !!g.erp }))];
+  }
+  return [...durum.cevrimici].filter(([id, x]) => x.cagri === k && id !== durum.ben?.id).map(([id, x]) => ({ id, ad: x.ad, yonetici: true }));
+}
+function katilimciAgaci(k, liste) {
+  const kutu = el('div', 'agac agac-katilim'), baslik = el('div', 'agac-grup acik');
+  baslik.append(el('span', 'ok', '▸'), el('span', null, '🎥 Görüşmede'), el('span', 'say', String(liste.length)));
+  baslik.title = liste.some((x) => x.ben) ? 'Bu kanalın görüşmesindesin' : 'Görüşmeye katılmak için tıkla';
+  baslik.onclick = (e) => { e.stopPropagation(); if (!durum.cagri) { if (durum.aktif !== k) kanalaGec(k); cagriyaKatil(k); } };
+  kutu.append(baslik);
+  for (const x of liste.sort((a, b) => (b.yonetici - a.yonetici) || (b.ben ? 1 : 0) - (a.ben ? 1 : 0))) {
+    const o = el('div', 'agac-oge agac-kisi');
+    o.append(avatar(x.ad.replace(/ \(sen\)$/, ''), null, profilFotolari.get(x.id) || (x.ben ? localStorage.getItem('ekip_foto') : null)), el('span', null, x.ad));
+    if (x.yonetici) o.append(el('span', 'rol', '👑'));
+    o.title = x.yonetici ? x.ad + ' · toplantı yöneticisi' : x.ad + ' · katılımcı';
+    kutu.append(o);
+  }
+  return kutu;
+}
+
 // Kanal işlemleri: görünen adı değiştir (yalnız bende), listemden kaldır, özel kanalı açan kişi için herkes için sil.
 let islemKanal = null;
 function kanalIslemAc(k) {
@@ -1553,6 +1586,8 @@ function kanallariCiz() {
     else if (durum.okunmamis.get(k)) o.append(el('span', 'sayac', durum.okunmamis.get(k)));
     o.onclick = () => kanalaGec(k);
     kok.append(o);
+    const katilan = gorusmedekiler(k);
+    if (katilan.length) kok.append(katilimciAgaci(k, katilan));
     if (k === durum.aktif && durum.kanallar.has(k) && durum.tabloVar && arsivAcik(k)) kok.append(agacCiz(k));
   }
 }
@@ -2458,7 +2493,7 @@ function eslesmeyiGuncelle() {
   // Açık anket/sorular içeri alınan her kişiye bir kez aktarılır (bekleme salonundakine gitmez).
   for (const id of onceki.keys()) if (!c.katilanlar.has(id)) c.aktarilan.delete(id);
   if (benIzinli) for (const [id, g] of c.katilanlar) if (izinli(id, g) && !c.aktarilan.has(id)) { c.aktarilan.add(id); durumAktar(id); }
-  bekleyenleriCiz(); kayitSeridiCiz(); kisileriCizCagri(); izinleriUygula(); yalnizlikCiz(); kamsizGuncelle();
+  bekleyenleriCiz(); kayitSeridiCiz(); kisileriCizCagri(); izinleriUygula(); yalnizlikCiz(); kamsizGuncelle(); kanallariCiz();
   if (!c.altyazi && [...c.katilanlar.values()].some((g) => g.altyazi)) altyaziAcKapa(true, false); // sonradan katılan da altyazıya girer
   if (!c.tahta && benIzinli && [...c.katilanlar.values()].some((g) => g.tahta)) tahtaAcKapa(true, false); // açık tahtayı görür
 }
@@ -2619,7 +2654,7 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
                   erp: !durum.ben.konuk || !!durum.ben.sahipKanit, katilanlar: new Map(), kabuller: new Set(ayar.kabul || []), cikarilanlar: new Set(ayar.cikar || []), bildirilen: new Set(),
                   altyazi: false, altyazilar: new Map(), dokum: [], tanima: null,
                   tahta: false, tahtaVuruslar: new Map(), tahtaKutu: null, tahtaTuval: null,
-                  baslangic: ayar.baslangic || Date.now(), anaKanal: ayar.ana || null, anaCh: null, kaynakKanal: ayar.kaynak || null, altOda: ayar.altOda || null, altOdalar: ayar.altOdalar || null,
+                  baslangic: ayar.baslangic || Date.now(), anaKanal: ayar.ana || null, anaCh: null, kaynakKanal: ayar.kaynak || null, gorunurKanal: ayar.gorunur || durum.aktif, altOda: ayar.altOda || null, altOdalar: ayar.altOdalar || null,
                   kilit: false, izinler: { sohbet: true, ekran: 'izin', tepki: true }, ekranIzinli: new Set(), ekranIstekleri: new Map(), elSirasi: new Map(), sohbetKaydi: [],
                   anketler: new Map(), sorular: new Map(), aktarilan: new Set(), sfu: null, sfuDenendi: false, duzen: localStorage.getItem('ekip_duzen') || 'oto', ceviri: '',
                   katilim: ayar.katilim || new Map([[durum.ben.id, { ad: durum.ben.ad, erp: !durum.ben.konuk || !!durum.ben.sahipKanit, giris: new Date().toISOString(), cikis: null }]]) };
