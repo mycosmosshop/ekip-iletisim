@@ -261,7 +261,8 @@
   @media (prefers-reduced-motion: reduce) { .karo .tepki { animation: none; } button { transition: none; } }
   .karo .yonetim { position: absolute; top: 8px; right: 8px; display: none; gap: 4px; }
   .karo:hover .yonetim, .karo:focus-within .yonetim { display: flex; }
-  .karo .yonetim button { padding: 3px 8px; font-size: 12px; background: rgb(8 20 24 / .7); color: #fff; border-color: transparent; }
+  .karo .yonetim button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border-radius: 50%; font-size: 11px; background: rgb(8 20 24 / .72); color: #fff; border-color: transparent; backdrop-filter: blur(6px); }
+  .karo .yonetim button:hover { background: rgb(8 20 24 / .9); }
   .karo .yonetim button.tehlike { background: var(--kirmizi); }
   #sahne[data-duzen="spot"] { grid-template-columns: minmax(0, 1fr); }
   #sahne[data-duzen="spot"] .karo:not(.ana-karo) { display: none; }
@@ -618,6 +619,7 @@
       <label>Hoparlör<select id="secHop"></select></label>
       <label><input type="checkbox" id="secIsik"> Işığı artır</label>
       <label title="Klima, makine, klavye gibi gürültüleri yapay zekâyla siler (tarayıcıda, ses dışarı gitmez)"><input type="checkbox" id="secGurultu"> Gürültü engelleme</label>
+      <label title="Aynı odada yan yana iki bilgisayardan katılıyorsanız: bu cihazın hoparlörü kapanır, öbür bilgisayarın mikrofonu sesi geri yollamaz (yankı/uğultu kesilir). Konuşmayı odada zaten duyuyorsun."><input type="checkbox" id="secAyniOda"> Aynı odadayız (hoparlörü kapat)</label>
       <span class="satir2" title="Kamera kapalıyken karonda görünür; yoksa adının baş harfleri">Profil resmi <button type="button" id="fotoSec">Seç…</button><button type="button" id="fotoSil">Kaldır</button></span>
       <input type="file" id="fotoDosya" accept="image/*" hidden>
       <div id="secArka" class="arka-izgara" role="radiogroup" aria-label="Arka plan"></div>
@@ -2404,7 +2406,12 @@ async function gorusmedenCikti(not) {
 }
 
 function yonetimDugmeleri(karo, id) {
-  const y = el('div', 'yonetim'), sus = el('button', null, '🔇'), kam = el('button', null, '📷✕'), cik = el('button', 'tehlike', '⛔');
+  const ikonlu = (sinif, ikon, yedek) => {
+    const b = el('button', sinif), svg = window.lucide && lucide.icons && lucide.icons[ikon] ? lucide.createElement(lucide.icons[ikon]) : null;
+    if (svg) { svg.setAttribute('width', '16'); svg.setAttribute('height', '16'); b.append(svg); } else b.textContent = yedek; // simge kitaplığı yüklenmediyse yazı
+    return b;
+  };
+  const y = el('div', 'yonetim'), sus = ikonlu(null, 'MicOff', 'Sustur'), kam = ikonlu(null, 'VideoOff', 'Kamera'), cik = ikonlu('tehlike', 'UserX', 'Çıkar');
   sus.title = 'Mikrofonunu kapat'; sus.setAttribute('aria-label', 'Mikrofonunu kapat');
   kam.title = 'Kamerasını kapat'; kam.setAttribute('aria-label', 'Kamerasını kapat');
   cik.title = 'Görüşmeden çıkar'; cik.setAttribute('aria-label', 'Görüşmeden çıkar');
@@ -2534,6 +2541,7 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
   arkaIsaretle(arka || 'yok');
   $('secIsik').checked = localStorage.getItem('ekip_isik') === '1';
   $('secGurultu').checked = gurultuAcik();
+  $('secAyniOda').checked = false;
   if ((arka && arka !== 'yok') || $('secIsik').checked) arkaPlanAyarla(arka || 'yok'); // model yüklenirken görüşme beklemez
 }
 
@@ -3106,8 +3114,33 @@ function tanimayiAyarla() {
 function altyaziYay(metin, son) {
   const c = durum.cagri;
   const p = { kimden: durum.ben.id, ad: durum.ben.ad, metin: metin.slice(0, 500), son, zaman: new Date().toISOString(), sira: (c.altyaziSira = (c.altyaziSira || 0) + 1) };
+  if (son) { p.seviye = Math.round((c.altyaziTepe || 0) * 1000) / 1000; c.altyaziTepe = 0; }
   durum.cagri.ch.send({ type: 'broadcast', event: 'altyazi', payload: p });
   altyaziAl(p);
+}
+
+// Yan yana oturanlarda konuşma, öbür bilgisayarın mikrofonundan da yazıya çevrilir ve yanlış kişinin adıyla düşerdi.
+// 8 saniye içinde başka birinden gelen benzer satır varsa (kelimelerin %60'ı ortak) sesi güçlü olan kalır, öbürü
+// dökümden ve ekrandan çıkar. Herkes aynı kuralı uyguladığından sonuç her bilgisayarda aynıdır. Seviye yoksa (eski sürüm) ayıklanmaz.
+const kelimeKumesi = (m) => new Set(kucuk(m).split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+function altyaziTekrarMi(c, p, kayit) {
+  const simdi = Date.now(), A = kelimeKumesi(p.metin);
+  c.sonAltyazilar = (c.sonAltyazilar || []).filter((q) => simdi - q.an < 8000);
+  const benzer = (B) => {
+    const ortak = [...A].filter((k) => B.has(k)).length, en = Math.min(A.size, B.size);
+    return en >= 2 ? ortak / en >= 0.6 : en === 1 && A.size === B.size && ortak === 1;
+  };
+  const q = p.seviye > 0 ? c.sonAltyazilar.find((x) => x.kimden !== p.kimden && x.seviye > 0 && benzer(x.kelimeler)) : null;
+  const yeni = { kimden: p.kimden, metin: p.metin, an: simdi, seviye: p.seviye || 0, kelimeler: A, kayit };
+  if (!q) { c.sonAltyazilar.push(yeni); return false; }
+  if (!(p.seviye > q.seviye || (p.seviye === q.seviye && p.kimden < q.kimden))) {
+    if (c.altyazilar.get(p.kimden)?.metin === p.metin) c.altyazilar.delete(p.kimden); // yan mikrofonun yazdığı: gösterme
+    return true;
+  }
+  const i = c.dokum.indexOf(q.kayit); if (i >= 0) c.dokum.splice(i, 1);
+  if (c.altyazilar.get(q.kimden)?.metin === q.metin) c.altyazilar.delete(q.kimden);
+  c.sonAltyazilar[c.sonAltyazilar.indexOf(q)] = yeni;
+  return false;
 }
 
 function altyaziAl(p) {
@@ -3116,8 +3149,13 @@ function altyaziAl(p) {
   const onceki = c.altyazilar.get(p.kimden);
   // Anlık yayında mesajlar yer değiştirebilir: eski ara sonuç yenisinin üstüne yazılmasın.
   if (!onceki || !(onceki.sira > p.sira)) c.altyazilar.set(p.kimden, { ad: p.ad, metin: p.metin, zaman: Date.now(), sira: p.sira });
-  if (p.son) { c.dokum.push({ zaman: p.zaman, ad: p.ad, metin: p.metin }); $('dokumDugme').hidden = false; }
-  if (p.son && c.ceviri && p.kimden !== durum.ben.id) ceviriIste(p);
+  if (p.son) {
+    const kayit = { zaman: p.zaman, ad: p.ad, metin: p.metin };
+    if (!altyaziTekrarMi(c, p, kayit)) {
+      c.dokum.push(kayit); $('dokumDugme').hidden = false;
+      if (c.ceviri && p.kimden !== durum.ben.id) ceviriIste(p);
+    }
+  }
   altyaziCiz();
   clearTimeout(c.altyaziSilici); c.altyaziSilici = setTimeout(altyaziCiz, 6100);
 }
@@ -3489,7 +3527,9 @@ function konusmayiOlc() {
     a.analiz.getByteTimeDomainData(a.veri);
     let top = 0;
     for (const v of a.veri) { const x = (v - 128) / 128; top += x * x; }
-    if (a.iz.enabled && Math.sqrt(top / a.veri.length) > KONUSMA_ESIGI) c.konusma.set(id, simdi);
+    const rms = Math.sqrt(top / a.veri.length);
+    if (a.iz.enabled && rms > KONUSMA_ESIGI) c.konusma.set(id, simdi);
+    if (id === durum.ben.id && a.iz.enabled) c.altyaziTepe = Math.max(c.altyaziTepe || 0, rms); // altyazı satırının ses gücü
     // kısa duraklamalarda çerçeve yanıp sönmesin diye 600 ms tutulur
     karo(id)?.classList.toggle('konusuyor', simdi - (c.konusma.get(id) || 0) < 600);
   }
@@ -4433,6 +4473,7 @@ function sfuYayinla() {
 
 // ---------- cihaz seçimi ----------
 function hoparloruUygula(video) {
+  video.muted = !!(durum.cagri && durum.cagri.ayniOda);
   const id = cihazTercihi().hop;
   if (id && video.setSinkId) video.setSinkId(id).catch(() => {});
 }
@@ -4512,6 +4553,11 @@ function cagriDugmeleriniBagla() {
   $('secMik').onchange = (e) => cihazDegistir('mik', e.target.value);
   $('secKam').onchange = (e) => cihazDegistir('kam', e.target.value);
   $('secHop').onchange = (e) => cihazDegistir('hop', e.target.value);
+  $('secAyniOda').onchange = (e) => {
+    durum.cagri.ayniOda = e.target.checked;
+    $('sahne').querySelectorAll('.karo:not(.ben) video').forEach(hoparloruUygula);
+    $('uyari').textContent = e.target.checked ? 'Bu cihazda diğerlerinin sesi kapatıldı (aynı odadasınız). Odadan katılmayan biri varsa onu duymazsın; kulaklık önerilir.' : '';
+  };
   $('secGurultu').onchange = (e) => { localStorage.setItem('ekip_gurultu', e.target.checked ? '1' : '0'); gurultuUygula(); };
   $('secIsik').onchange = (e) => {
     localStorage.setItem('ekip_isik', e.target.checked ? '1' : '0');
