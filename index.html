@@ -2464,19 +2464,29 @@ function eslesmeyiGuncelle() {
 }
 
 // Görüşmede tek başınayken sahnede bekleme kartı ve davet düğmesi (Meet'teki "başka kimse yok" ekranı).
+// Sahnede yalnız kendi karon varken (tek başına ya da bekleme salonunda) yanına bir kart konur; böylece kendi görüntün
+// ekranı kaplamaz, ne beklediğin yazar.
 function yalnizlikCiz() {
   const c = durum.cagri;
-  const yalniz = izinli(durum.ben.id, { erp: c.erp }) && ![...c.katilanlar].some(([id, g]) => izinli(id, g));
+  const benIzinli = izinli(durum.ben.id, { erp: c.erp });
+  const yalniz = benIzinli && ![...c.katilanlar].some(([id, g]) => izinli(id, g));
+  const tur = !benIzinli ? 'bekliyor' : yalniz ? 'yalniz' : null;
   let kart = $('sahne').querySelector('.bekleme-kart');
-  if (!yalniz) { if (kart) kart.remove(); return; }
-  if (kart) return;
-  kart = el('div', 'bekleme-kart');
-  const davet = el('button', 'ana', 'Davet bağlantısını kopyala');
-  davet.onclick = davetGoster;
-  kart.append(el('strong', null, 'Katılımcıların gelmesi bekleniyor…'),
-    el('span', null, (c.kaynakKanal ? 'Kanaldakiler "Görüşmeye katıl" ile gelir. ' : '') + (c.kanal.startsWith('misafir-')
-      ? 'Bağlantıyı herkese gönderebilirsin; gelenler bekleme salonuna düşer, sen içeri alırsın.'
-      : 'Bağlantıyla yalnız ERP’deki üyeler girer.')), davet);
+  if (kart && kart.dataset.tur !== tur) { kart.remove(); kart = null; }
+  if (!tur || kart) return;
+  kart = el('div', 'bekleme-kart'); kart.dataset.tur = tur;
+  if (tur === 'bekliyor') {
+    kart.append(el('strong', null, kilitli() ? '🔒 Toplantı kilitli' : '⏳ İçeri alınmayı bekliyorsun'),
+      el('span', null, kilitli() ? 'Toplantı sahibi kilidi açınca bekleme salonuna düşeceksin.'
+        : 'Toplantı sahibi seni içeri aldığında görüşme başlar. Bu arada kameranı, mikrofonunu ve arka planını ayarlayabilirsin.'));
+  } else {
+    const davet = el('button', 'ana', 'Davet bağlantısını kopyala');
+    davet.onclick = davetGoster;
+    kart.append(el('strong', null, 'Katılımcıların gelmesi bekleniyor…'),
+      el('span', null, (c.kaynakKanal ? 'Kanaldakiler "Görüşmeye katıl" ile gelir. ' : '') + (c.kanal.startsWith('misafir-')
+        ? 'Bağlantıyı herkese gönderebilirsin; gelenler bekleme salonuna düşer, sen içeri alırsın.'
+        : 'Bağlantıyla yalnız ERP’deki üyeler girer.')), davet);
+  }
   $('sahne').append(kart);
 }
 
