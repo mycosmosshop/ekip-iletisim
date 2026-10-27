@@ -3172,34 +3172,49 @@ async function arkaIzi(kam, tur, resim, isik) {
   const arka = { tur, resim, dur: false, iz: tuval.captureStream(30).getVideoTracks()[0] };
   arka.durdur = () => { arka.dur = true; arka.saat.terminate(); arka.iz.stop(); kaynak.srcObject = null; };
   let onceki = null, piksel = null;
+  // Kişi ayırma ve birleştirme ana iş parçacığında eşzamanlı çalışır; yavaş bilgisayarda zamanlayıcı mesajları
+  // birikip sayfayı kilitler ve görüntü kare kare takılırdı. Bu yüzden: işlem sürerken yeni kare alınmaz, ayırma süresi
+  // uzunsa ayırma iki karede bir yapılıp son maske yeniden kullanılır (birleştirme her karede). ponytail: süre ölçümü kaba (üstel ortalama).
+  let sonAn = 0, ayirSure = 15, say = 0, mesgul = false;
+  const birlestir = () => {
+    if (zemin) ctx.drawImage(zemin, 0, 0);
+    else {
+      bctx.filter = `blur(${yaricap}px)`; bctx.drawImage(kaynak, 0, 0, bw, bh); bctx.filter = 'none';
+      ctx.drawImage(bulanik, pay, pay, bw - 2 * pay, bh - 2 * pay, 0, 0, w, h);
+    }
+    kctx.globalCompositeOperation = 'copy'; kctx.filter = isik ? ISIK : 'none'; kctx.drawImage(kaynak, 0, 0, w, h); kctx.filter = 'none';
+    kctx.globalCompositeOperation = 'destination-in'; kctx.drawImage(maske, 0, 0, w, h);
+    ctx.drawImage(kisi, 0, 0);
+  };
   const isle = () => {
     arka.iz.enabled = kam.enabled; // kamera kapatılınca karşıya siyah gider
-    if (arka.dur || kaynak.readyState < 2) return;
+    if (arka.dur || kaynak.readyState < 2 || mesgul) return;
+    const simdi = performance.now();
+    if (simdi - sonAn < Math.max(33, ayirSure * 1.3)) return; // işlem süresine göre kare hızı kendiliğinden düşer
+    sonAn = simdi;
     if (!seg) { ctx.filter = ISIK; ctx.drawImage(kaynak, 0, 0, w, h); ctx.filter = 'none'; return; }
-    seg.segmentForVideo(kaynak, performance.now(), (sonuc) => {
-      const m = sonuc.confidenceMasks && sonuc.confidenceMasks[0];
-      if (!m) return;
-      const guven = m.getAsFloat32Array();
-      if (!piksel || maske.width !== m.width || maske.height !== m.height) {
-        maske.width = m.width; maske.height = m.height;
-        piksel = mctx.createImageData(m.width, m.height); onceki = Float32Array.from(guven);
-      }
-      const d = piksel.data;
-      for (let i = 0; i < guven.length; i++) {
-        // Önceki kareyle karıştırmak kenar titremesini, smoothstep(0,3–0,7) kararsız piksellerin bıraktığı haleyi azaltır.
-        const a = onceki[i] = onceki[i] * 0.35 + guven[i] * 0.65, t = Math.min(1, Math.max(0, (a - 0.3) * 2.5));
-        d[i * 4 + 3] = t * t * (3 - 2 * t) * 255;
-      }
-      mctx.putImageData(piksel, 0, 0);
-      if (zemin) ctx.drawImage(zemin, 0, 0);
-      else {
-        bctx.filter = `blur(${yaricap}px)`; bctx.drawImage(kaynak, 0, 0, bw, bh); bctx.filter = 'none';
-        ctx.drawImage(bulanik, pay, pay, bw - 2 * pay, bh - 2 * pay, 0, 0, w, h);
-      }
-      kctx.globalCompositeOperation = 'copy'; kctx.filter = isik ? ISIK : 'none'; kctx.drawImage(kaynak, 0, 0, w, h); kctx.filter = 'none';
-      kctx.globalCompositeOperation = 'destination-in'; kctx.drawImage(maske, 0, 0, w, h);
-      ctx.drawImage(kisi, 0, 0);
-    });
+    if (piksel && ayirSure > 22 && (say++ & 1)) { ayirSure *= 0.97; birlestir(); return; } // yavaşsa ayırma iki karede bir
+    mesgul = true;
+    try {
+      seg.segmentForVideo(kaynak, simdi, (sonuc) => {
+        const m = sonuc.confidenceMasks && sonuc.confidenceMasks[0];
+        if (!m) return;
+        const guven = m.getAsFloat32Array();
+        if (!piksel || maske.width !== m.width || maske.height !== m.height) {
+          maske.width = m.width; maske.height = m.height;
+          piksel = mctx.createImageData(m.width, m.height); onceki = Float32Array.from(guven);
+        }
+        const d = piksel.data;
+        for (let i = 0; i < guven.length; i++) {
+          // Önceki kareyle karıştırmak kenar titremesini, smoothstep(0,3–0,7) kararsız piksellerin bıraktığı haleyi azaltır.
+          const a = onceki[i] = onceki[i] * 0.35 + guven[i] * 0.65, t = Math.min(1, Math.max(0, (a - 0.3) * 2.5));
+          d[i * 4 + 3] = t * t * (3 - 2 * t) * 255;
+        }
+        mctx.putImageData(piksel, 0, 0);
+        ayirSure = ayirSure * 0.8 + (performance.now() - simdi) * 0.2;
+        birlestir();
+      });
+    } finally { mesgul = false; }
   };
   // Sayfa zamanlayıcıları ve kare geri çağrıları sekme gizlenince durur; Worker zamanlayıcısı durmaz,
   // böylece görüşmedeyken başka sekmeye geçince görüntü donmaz.
