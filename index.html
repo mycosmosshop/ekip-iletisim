@@ -2434,7 +2434,7 @@ async function cagridanAyril(gecis) {
   const c = durum.cagri;
   if (!c) return;
   c.ayriliyor = true;
-  const not = gecis ? null : otomatikNotVerisi(c, c.herkesBitirdi);
+  const nd = gecis ? {} : notDurumu(c, c.herkesBitirdi), not = nd.veri || null;
   pipKapat();
   if ($('dahaMenu').matches(':popover-open')) $('dahaMenu').hidePopover();
   if (c.kayit) await kayitDurdur(); // kayıt kaybolmasın: önce yüklenir
@@ -2472,6 +2472,7 @@ async function cagridanAyril(gecis) {
   if (!gecis) $('baglantiKutu').hidden = true;
   lobiDurumuYay(); basligiCiz();
   if (KONUK && !gecis) { $('uygulama').hidden = true; $('girisDugme').textContent = 'Yeniden katıl'; $('giris').hidden = false; }
+  if (!not && nd.neden) $('uyari').textContent = nd.neden;
   if (not) {
     $('uyari').textContent = '📝 Toplantı notu hazırlanıyor, birazdan kanala düşecek…';
     toplantiNotuGonder(not).then(() => { $('uyari').textContent = ''; }, (e) => { $('uyari').textContent = 'Toplantı notu çıkarılamadı: ' + e.message; });
@@ -4180,13 +4181,21 @@ async function ozetCikar() {
 }
 // Görüşmeden çıkarken: içeride başka toplantı sahibi kalmadıysa (ya da herkes için bitirildiyse) ve konuşulanlar
 // elle alınan nottan beri arttıysa not kendiliğinden çıkar. Yeterli döküm yoksa (altyazı kapalıydı) hiçbir şey yapılmaz.
-function otomatikNotVerisi(c, herkesIcin) {
-  if (!c.erp || YEREL || !DOSYA_URL || c.altOda || !otoNotAcik()) return null;
+// Otomatik not şartları: ERP görüşmesi, ayar açık, bu tarayıcı ERP'li son kişi, yeterli içerik (en az 2 yazıya çevrilmiş
+// konuşma satırı ya da ortak not) ve son nottan sonra yeni içerik. Çıkmayan nedeni kullanıcıya söylenir (sessizce atlanmaz).
+const notDurumu = (c, herkesIcin) => {
+  if (!c.erp || YEREL || !DOSYA_URL || c.altOda) return { neden: '' }; // ERP dışı ya da alt oda: not beklenmez
+  if (!otoNotAcik()) return { neden: '' };
   const sonSahip = herkesIcin || ![...c.katilanlar].some(([id, g]) => g.erp && izinli(id, g));
+  if (!sonSahip) return { neden: 'Görüşmede başka ERP kullanıcısı kaldı; not, ERP’li son kişi çıkınca onun tarayıcısından hazırlanır.' };
   const icerik = c.dokum.length + c.sohbetKaydi.length;
   const notVar = !!(c.not && c.not.metin.trim().length > 20); // ortak not tek başına da yeterli içerik
-  return sonSahip && (c.dokum.length >= 3 || notVar) && (icerik > (c.notGitti || 0) || notVar) ? toplantiNotuVerisi(c) : null;
-}
+  const yeterli = c.dokum.length >= 2 || notVar;
+  if (!yeterli) return { neden: c.dokum.length || c.altyazi ? `Toplantı notu çıkmadı: yalnız ${c.dokum.length} satır konuşma yazıya çevrildi (en az 2 gerekir). Mikrofonun açık olduğundan emin ol.` : '' };
+  if (!(icerik > (c.notGitti || 0) || notVar)) return { neden: 'Toplantı notu zaten hazırlanmıştı; yeni içerik yok.' };
+  return { veri: toplantiNotuVerisi(c) };
+};
+const otomatikNotVerisi = (c, herkesIcin) => notDurumu(c, herkesIcin).veri || null;
 
 // Başkasının bitmiş altyazı cümlesi seçilen dile çevrilip ayrı satırda gösterilir (döküm özgün dilde kalır).
 async function ceviriIste(p) {
