@@ -1895,6 +1895,14 @@ function olaylariBagla(ch) {
 
 // ---------- görüşme (WebRTC, herkes herkese) ----------
 const cihazTercihi = () => { try { return JSON.parse(localStorage.getItem('ekip_cihaz') || '{}'); } catch (e) { return {}; } };
+// Cihaz açılamayınca kullanıcıya ne yapacağını söyler (izin verilmediyse tarayıcı bir daha sormaz).
+const cihazHatasi = (e, tur) => {
+  const ad = tur === 'audio' ? 'Mikrofon' : 'Kamera';
+  if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) return `${ad} izni kapalı: adres çubuğundaki kilit (ya da kamera) simgesinden bu site için ${ad.toLowerCase()} iznini “İzin ver” yapıp sayfayı yenile.`;
+  if (e && e.name === 'NotFoundError') return `${ad} bulunamadı: cihaz takılı ve Windows’ta açık mı?`;
+  if (e && (e.name === 'NotReadableError' || e.name === 'AbortError')) return `${ad} başka bir program tarafından kullanılıyor olabilir; onu kapatıp yeniden dene.`;
+  return `${ad} açılamadı: ${(e && e.message) || e}`;
+};
 const SES_AYAR = { noiseSuppression: true, echoCancellation: true, autoGainControl: true }; // tarayıcının gürültü bastırması
 
 async function yerelAkisAl() {
@@ -2414,7 +2422,9 @@ const cagriDurumuYay = () => {
 
 function mikKamDugmeleri() {
   const y = durum.cagri.yerel, mik = y.getAudioTracks()[0], kam = y.getVideoTracks()[0];
-  $('mikDugme').disabled = !mik; $('kamDugme').disabled = !kam;
+  // İzin verilmeden girildiyse iz yoktur: düğmeye basınca cihaz istenir (tarayıcı yeniden sorar ya da neden olmadığını söyleriz).
+  $('mikDugme').disabled = $('kamDugme').disabled = false;
+  $('mikDugme').title = mik ? 'Mikrofon (Ctrl+D)' : 'Mikrofonu aç (izin ister)'; $('kamDugme').title = kam ? 'Kamera (Ctrl+E)' : 'Kamerayı aç (izin ister)';
   $('mikDugme').setAttribute('aria-pressed', String(!!mik && mik.enabled));
   $('kamDugme').setAttribute('aria-pressed', String(!!kam && kam.enabled));
 }
@@ -3285,7 +3295,7 @@ async function ekranPaylas() {
 
 function izAcKapa(tur, dugme) {
   const t = tur === 'ses' ? durum.cagri.yerel.getAudioTracks()[0] : durum.cagri.yerel.getVideoTracks()[0];
-  if (!t) return;
+  if (!t) { cihazDegistir(tur === 'ses' ? 'mik' : 'kam', null); return; }
   t.enabled = !t.enabled;
   if (tur === 'video' && durum.cagri.arka) durum.cagri.arka.iz.enabled = t.enabled;
   if (tur === 'ses') tanimayiAyarla(); // mikrofon kapalıyken konuşma yazıya çevrilmez
@@ -3455,10 +3465,11 @@ async function onizlemeGoster(yerel) {
   const d = $('onizleme'), mik = () => yerel.getAudioTracks()[0], kam = () => yerel.getVideoTracks()[0];
   $('onizlemeVideo').srcObject = yerel;
   const dugmeleriCiz = () => {
-    for (const [dugme, iz] of [[$('onMik'), mik()], [$('onKam'), kam()]]) {
-      dugme.disabled = !iz;
+    for (const [dugme, iz, anahtar] of [[$('onMik'), mik(), 'mik'], [$('onKam'), kam(), 'kam']]) {
+      dugme.disabled = false;
       dugme.setAttribute('aria-pressed', String(!!iz && iz.enabled));
-      dugme.onclick = () => { iz.enabled = !iz.enabled; dugmeleriCiz(); kamDenetle(); };
+      dugme.title = iz ? '' : (anahtar === 'mik' ? 'Mikrofonu aç (izin ister)' : 'Kamerayı aç (izin ister)');
+      dugme.onclick = () => { if (!iz) { cihazDegisti(anahtar, null); return; } iz.enabled = !iz.enabled; dugmeleriCiz(); kamDenetle(); };
     }
   };
   // Kamera siyah görüntü veriyorsa (başka uygulama tutuyor ya da Windows Hello'nun kızılötesi kamerası seçili)
@@ -3498,16 +3509,18 @@ async function onizlemeGoster(yerel) {
     }
   };
   const cihazDegisti = async (anahtar, deviceId) => {
-    const tur = anahtar === 'mik' ? 'audio' : 'video', t = cihazTercihi(); t[anahtar] = deviceId;
-    localStorage.setItem('ekip_cihaz', JSON.stringify(t));
+    const tur = anahtar === 'mik' ? 'audio' : 'video';
+    if (deviceId) { const t = cihazTercihi(); t[anahtar] = deviceId; localStorage.setItem('ekip_cihaz', JSON.stringify(t)); } // deviceId yoksa: izin verilmeden gelindi, varsayılan cihaz isteniyor
     let yeni;
-    try { yeni = (await navigator.mediaDevices.getUserMedia({ [tur]: { ...(tur === 'audio' ? SES_AYAR : {}), deviceId: { exact: deviceId } } })).getTracks()[0]; }
-    catch (e) { $('onKamUyari').hidden = false; $('onKamUyari').textContent = `⚠️ Bu ${tur === 'audio' ? 'mikrofon' : 'kamera'} açılamadı: ${e.message}`; return; }
+    try { yeni = (await navigator.mediaDevices.getUserMedia({ [tur]: deviceId ? { ...(tur === 'audio' ? SES_AYAR : {}), deviceId: { exact: deviceId } } : (tur === 'audio' ? SES_AYAR : true) })).getTracks()[0]; }
+    catch (e) { $('onKamUyari').hidden = false; $('onKamUyari').textContent = '⚠️ ' + cihazHatasi(e, tur); return; }
+    $('onKamUyari').hidden = true;
     const eski = tur === 'audio' ? mik() : kam();
     if (eski) { yeni.enabled = eski.enabled; yerel.removeTrack(eski); eski.stop(); }
     yerel.addTrack(yeni);
     dugmeleriCiz();
     if (tur === 'audio') sesOlcerBagla(); else { kamerayiKoru(yerel, onKamYenilendi); arkaGoster(); kamDenetle(); }
+    cihazSec(); // izin verilince cihaz adları görünür
   };
   $('onKamSec').onchange = (e) => cihazDegisti('kam', e.target.value);
   $('onMikSec').onchange = (e) => cihazDegisti('mik', e.target.value);
@@ -4278,15 +4291,15 @@ async function cihazlariDoldur() {
   }
 }
 
-async function cihazDegistir(anahtar, deviceId) {
-  const t = cihazTercihi(); t[anahtar] = deviceId;
-  localStorage.setItem('ekip_cihaz', JSON.stringify(t));
+async function cihazDegistir(anahtar, deviceId) { // deviceId yoksa: izin verilmeden girilmiş, varsayılan cihaz ilk kez isteniyor
+  if (deviceId) { const t = cihazTercihi(); t[anahtar] = deviceId; localStorage.setItem('ekip_cihaz', JSON.stringify(t)); }
   const c = durum.cagri;
   if (anahtar === 'hop') { $('sahne').querySelectorAll('.karo:not(.ben) video').forEach(hoparloruUygula); return; }
   const tur = anahtar === 'mik' ? 'audio' : 'video';
   let yeni;
-  try { yeni = (await navigator.mediaDevices.getUserMedia({ [tur]: { ...(tur === 'audio' ? SES_AYAR : {}), deviceId: { exact: deviceId } } })).getTracks()[0]; }
-  catch (e) { $('uyari').textContent = 'Cihaz açılamadı: ' + e.message; return; }
+  try { yeni = (await navigator.mediaDevices.getUserMedia({ [tur]: deviceId ? { ...(tur === 'audio' ? SES_AYAR : {}), deviceId: { exact: deviceId } } : (tur === 'audio' ? SES_AYAR : true) })).getTracks()[0]; }
+  catch (e) { $('uyari').textContent = cihazHatasi(e, tur); return; }
+  $('uyari').textContent = '';
   const eski = tur === 'audio' ? c.yerel.getAudioTracks()[0] : c.yerel.getVideoTracks()[0];
   if (eski) { yeni.enabled = eski.enabled; c.yerel.removeTrack(eski); eski.stop(); }
   c.yerel.addTrack(yeni);
