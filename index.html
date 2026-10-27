@@ -21,7 +21,8 @@
   window.EKIP_KONUK = (/^[a-z0-9]{16,40}$/.exec(new URLSearchParams(location.search).get('gorusme') || '') || [null])[0];
   window.ERP_GUARD_ALLOW = () => window.EKIP_YEREL || !!window.EKIP_KONUK;
 </script>
-<script src="https://mycosmosshop.github.io/erp-portal/erp-guard.js"></script>
+<!-- async: sayfanın açılışını bekletmez; uygulama kimlik doğrulanana kadar zaten gizli -->
+<script async src="https://mycosmosshop.github.io/erp-portal/erp-guard.js"></script>
 <style>
   /* Renkler bir sünger üreticisinin malzemesinden: mürekkep petrol, sünger sarısı, ovma teli yeşili, serin kâğıt. */
   :root {
@@ -895,6 +896,11 @@ async function kimlikAl() {
   return erpKimligi(); // oturum yoksa erp-guard zaten portala yönlendirir
 }
 
+// Supabase oturumu tarayıcıda kayıtlı mı (ağa sormadan). Geçerliliğini tam uygulama ve ERP koruması denetler.
+const erpOturumuVar = () => {
+  try { const t = JSON.parse(localStorage.getItem('sb-chchaielttnimuuezazb-auth-token') || 'null'); return !!(t && (t.refresh_token || t.access_token)); }
+  catch (e) { return false; }
+};
 // Onaylı ERP oturumu varsa kimlik; yoksa null. Görüşme bağlantısıyla gelen ERP kullanıcısı da bununla tanınır.
 async function erpKimligi() {
   const { data: { session } } = await sb.auth.getSession();
@@ -3415,6 +3421,9 @@ function kayitSeridiCiz() {
 async function konukBasla() {
   document.body.classList.add('konuk');
   // Bağlantıyı açan ERP kullanıcısıysa misafir gibi beklemez, toplantı sahibi olarak katılır.
+  // Tarayıcıda ERP oturumu varsa beklemeden tam uygulamaya geç. Oturum sorgusu (getSession) başka sekme oturumu yenilerken
+  // uzun süre bekleyip boş dönebiliyordu: kişi hem uzun boş ekran görüyor hem de misafir sayılıyordu.
+  if (!YEREL && erpOturumuVar()) { location.replace(location.pathname + '?odaya=' + KONUK); return; }
   const erp = YEREL ? null : await erpKimligi();
   // ERP oturumu varsa misafir görünümü (yan menüsüz) yerine tam uygulama açılır ve aynı odaya girilir.
   if (erp) { location.replace(location.pathname + '?odaya=' + KONUK); return; }
