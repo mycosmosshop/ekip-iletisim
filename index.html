@@ -2164,10 +2164,23 @@ function esOlustur(id, ad) {
   pc.onconnectionstatechange = () => {
     const etiket = karo(id)?.querySelector('span.ad');
     if (etiket) etiket.textContent = ad + (pc.connectionState === 'connected' ? '' : ' · ' + ({ new: 'bağlanıyor', connecting: 'bağlanıyor', disconnected: 'koptu', failed: 'bağlanamadı', closed: 'kapandı' }[pc.connectionState] || pc.connectionState));
-    if (pc.connectionState === 'failed') pc.restartIce();
+    // Kopan bağlantı kendiliğinden yeniden kurulur: önceden restartIce() çağrılıp yeni teklif gönderilmediği için karşı taraf kalıcı düşüyordu.
+    clearTimeout(es.kurtar);
+    if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') es.kurtar = setTimeout(() => baglantiyiYenile(id, es), pc.connectionState === 'failed' ? 500 : 6000);
   };
   karoEkle(id, ad + ' · bağlanıyor', akis, false);
   return es;
+}
+
+// Teklifi sonradan katılan verir (eşitlikte küçük kimlik); öteki taraf yeniden kurulmasını ister.
+const teklifciMi = (c, id, g) => c.katilma > g.katilma || (c.katilma === g.katilma && durum.ben.id < id);
+function baglantiyiYenile(id, es) {
+  const c = durum.cagri;
+  if (!c || c.sfu || c.esler.get(id) !== es || es.pc.connectionState === 'connected') return;
+  const g = c.katilanlar.get(id);
+  if (!g || !izinli(id, g)) return;
+  if (teklifciMi(c, id, g)) { esKapat(id); teklifGonder(id, g.ad); }
+  else sinyalGonder(id, 'yenile', {});
 }
 
 function iziniAyarla(pc) {
@@ -2202,6 +2215,11 @@ async function sinyalAl(p) {
     if (es && es.pc.remoteDescription) { try { await es.pc.addIceCandidate(p.veri); } catch (e) { /* eski aday */ } }
     else if (es) es.bekleyenIce.push(p.veri);
     else { const l = c.bekleyenIce.get(p.kimden) || []; l.push(p.veri); c.bekleyenIce.set(p.kimden, l); }
+    return;
+  }
+  if (p.tur === 'yenile') { // karşı taraf bağlantının koptuğunu bildirdi: teklifçi bizsek yeniden kur
+    const g = c.katilanlar.get(p.kimden);
+    if (g && izinli(p.kimden, g) && teklifciMi(c, p.kimden, g) && !(es && es.pc.connectionState === 'connected')) { if (es) esKapat(p.kimden); teklifGonder(p.kimden, g.ad); }
     return;
   }
   if (p.tur === 'offer') {
@@ -3137,6 +3155,8 @@ async function konukBasla() {
   document.body.classList.add('konuk');
   // Bağlantıyı açan ERP kullanıcısıysa misafir gibi beklemez, toplantı sahibi olarak katılır.
   const erp = YEREL ? null : await erpKimligi();
+  // ERP oturumu varsa misafir görünümü (yan menüsüz) yerine tam uygulama açılır ve aynı odaya girilir.
+  if (erp) { location.replace(location.pathname + '?odaya=' + KONUK); return; }
   const sahipAnahtar = !erp && !YEREL ? sahipAnahtarlari()[KONUK] : null; // bu linki bu tarayıcıda ERP'li biri açmış
   $('girisBaslik').textContent = erp ? 'Görüşmeye katıl (ERP hesabınla)' : sahipAnahtar ? 'Görüşmeye toplantı sahibi olarak katıl' : 'Görüşmeye katıl';
   $('girisDugme').textContent = 'Katıl';
@@ -4655,9 +4675,10 @@ async function basla() {
   cagriDugmeleriniBagla();
   // Kanal görüşmesi davet bağlantısı (?kanal=…&katil=1): o kanala geç, katılma önizlemesini aç.
   // Kanal listeye eklenmez: özel kanalsa ve üye değilsen adı lobiye taşınmasın (erişimi veritabanı keser).
-  const p = new URLSearchParams(location.search), davetKanal = p.get('kanal');
-  if (davetKanal) history.replaceState(null, '', location.pathname);
+  const p = new URLSearchParams(location.search), davetKanal = p.get('kanal'), odaya = /^[a-z0-9]{16,40}$/.exec(p.get('odaya') || '');
+  if (davetKanal || odaya) history.replaceState(null, '', location.pathname);
   await kanalaGec(davetKanal || 'genel');
+  if (odaya) { cagriyaKatil('misafir-' + odaya[0]); return; } // görüşme bağlantısı: ERP'li kişi tam uygulamadan odaya girer
   if (davetKanal && p.has('katil')) {
     await Promise.race([durum.lobiSenkron, new Promise((ok) => setTimeout(ok, 4000))]);
     cagriyaKatil(davetKanal);
