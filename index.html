@@ -413,6 +413,8 @@
   .oge:hover .kanal-menu, .oge.secili .kanal-menu, .oge .kanal-menu:focus-visible { opacity: .85; }
   .oge .kanal-menu:hover { background: rgb(255 255 255 / .12); opacity: 1; }
   .oge .kanal-menu + .sayac, .oge .kanal-menu + .cagri-isareti { margin-left: 4px; }
+  #erpSor { font-size: 13px; line-height: 1.5; color: var(--soluk); }
+  #erpSor a { color: var(--vurgu, #1d6f5f); font-weight: 600; }
   #kanalIslem { border: 0; border-radius: 18px; background: var(--panel); color: var(--yazi); padding: 22px; width: min(440px, 94vw); box-shadow: var(--golge); }
   #kanalIslem::backdrop { background: rgb(8 20 24 / .6); }
   #kanalIslem form { display: grid; gap: 12px; }
@@ -480,6 +482,8 @@
     <strong id="girisBaslik">Ekip İletişim (yerel deneme)</strong>
     <label>Adın <input id="girisAd" required autocomplete="name" maxlength="60"></label>
     <button class="ana" id="girisDugme">Gir</button>
+    <div id="erpSor" hidden>Toplantıyı açan sen misin? ERP hesabınla girersen misafir gibi beklemez, toplantı sahibi olarak katılırsın.
+      <a id="erpGirisLink" href="https://mycosmosshop.github.io/erp-portal/erp_portal.html">ERP’ye giriş yap</a> (giriş sonrası bu bağlantıyı yeniden aç)</div>
   </form>
 </div>
 
@@ -3102,6 +3106,7 @@ async function konukBasla() {
   $('girisDugme').textContent = 'Katıl';
   $('girisAd').value = erp ? erp.ad : sessionStorage.getItem('ekip_ad') || '';
   $('girisAd').readOnly = !!erp;
+  $('erpSor').hidden = !!erp || YEREL; // ERP oturumu yoksa toplantıyı açan kişiye yol göster
   $('giris').hidden = false;
   cagriDugmeleriniBagla();
   $('girisForm').onsubmit = async (e) => {
