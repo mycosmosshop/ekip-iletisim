@@ -261,9 +261,13 @@
   .karo .tepki { position: absolute; left: 50%; bottom: 18%; font-size: 46px; pointer-events: none; animation: ucus 2.2s ease-out forwards; }
   @keyframes ucus { from { transform: translate(-50%, 0) scale(.6); opacity: 0; } 15% { transform: translate(-50%, -10%) scale(1.1); opacity: 1; } to { transform: translate(-50%, -150%); opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { .karo .tepki { animation: none; } button { transition: none; } }
-  .karo .yonetim { position: absolute; top: 8px; right: 8px; display: none; gap: 4px; }
+  .karo .yonetim { position: absolute; top: 48px; right: 10px; display: none; gap: 4px; flex-direction: column; align-items: flex-end; z-index: 3; }
   .karo:hover .yonetim, .karo:focus-within .yonetim { display: flex; }
-  .karo .yonetim button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border-radius: 50%; font-size: 11px; background: rgb(8 20 24 / .72); color: #fff; border-color: transparent; backdrop-filter: blur(6px); }
+  .karo .yonetim button { padding: 4px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 600; background: rgb(8 20 24 / .78); color: #fff; border-color: transparent; backdrop-filter: blur(6px); }
+  .karo .durum-rozet { position: absolute; top: 10px; right: 10px; z-index: 3; display: flex; gap: 4px; pointer-events: none; }
+  .karo .durum-rozet span { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: rgb(8 20 24 / .62); color: #fff; backdrop-filter: blur(6px); }
+  .karo .durum-rozet span.kapali { background: var(--kirmizi); }
+  .karo .durum-rozet svg { width: 15px; height: 15px; }
   .karo .yonetim button:hover { background: rgb(8 20 24 / .9); }
   .karo .yonetim button.tehlike { background: var(--kirmizi); }
   #sahne[data-duzen="spot"] { grid-template-columns: minmax(0, 1fr); }
@@ -844,6 +848,13 @@ async function sahipKaydet(kod) {
 const yeniKod = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 20);
 // Görüşmenin ait olduğu kanal: açık kanal görüşmesi misafir odasında yürür ama kanalına bağlı görünür
 const cagriKanali = () => durum.cagri && (durum.cagri.kaynakKanal || durum.cagri.anaKanal || durum.cagri.kanal);
+// Görüşmenin kanal listesinde göründüğü kanal: bağlantıyla açılan (misafir) oda, açıldığı kanalın altında durur.
+const gorunenKanal = () => {
+  const c = durum.cagri;
+  if (!c) return null;
+  const k = cagriKanali();
+  return k && k.startsWith('misafir-') && !KONUK ? c.gorunurKanal || k : k;
+};
 const mmss = (sn) => (sn >= 3600 ? Math.floor(sn / 3600) + ':' : '') + String(Math.floor(sn / 60) % 60).padStart(2, '0') + ':' + String(sn % 60).padStart(2, '0');
 const el = (etiket, sinif, metin) => { const e = document.createElement(etiket); if (sinif) e.className = sinif; if (metin != null) e.textContent = metin; return e; };
 
@@ -1507,9 +1518,7 @@ function ogeIslemleriKur() {
 // başka kanalların görüşmesinde lobideki ERP kullanıcıları (misafirler lobiye girmez). ERP kullanıcıları görüşmede yöneticidir.
 function gorusmedekiler(k) {
   const c = durum.cagri;
-  // Bağlantıyla açılan görüşme (misafir odası) başlatıldığı kanalın altında görünür.
-  const benimKanal = c && (c.kaynakKanal || c.anaKanal || (c.kanal.startsWith('misafir-') ? c.gorunurKanal : c.kanal));
-  if (c && benimKanal === k) {
+  if (c && gorunenKanal() === k) {
     return [{ id: durum.ben.id, ad: durum.ben.ad + ' (sen)', yonetici: c.erp, ben: true },
             ...[...c.katilanlar].filter(([id, g]) => izinli(id, g)).map(([id, g]) => ({ id, ad: g.ad, yonetici: !!g.erp }))];
   }
@@ -1575,7 +1584,8 @@ function kanallariCiz() {
   const cagridakiler = cagriSayilari();
   const tum = [...durum.kanallar, ...durum.dmAdlari.keys()];
   for (const k of tum) {
-    const o = el('div', 'oge' + (k === durum.aktif ? ' secili' : ''), kanalBasligi(k));
+    const dm = k.startsWith('dm:'), o = el('div', 'oge' + (k === durum.aktif ? ' secili' : '') + (dm ? ' dm' : ''), (dm ? '💬 ' : '') + kanalBasligi(k));
+    if (dm) o.title = 'Birebir sohbet';
     if (durum.kanallar.has(k)) {
       const m = el('button', 'kanal-menu', '⋯'); m.type = 'button'; m.title = 'Kanal işlemleri'; m.setAttribute('aria-label', k + ' kanalı işlemleri');
       m.onclick = (e) => { e.stopPropagation(); kanalIslemAc(k); };
@@ -1594,27 +1604,16 @@ function kanallariCiz() {
 
 function kisileriCiz() {
   const kok = $('kisiListesi'); kok.replaceChildren();
-  // En üstte sen: görüşmedeysen ve ERP'liysen toplantı yöneticisisin (misafiri içeri alan, susturan).
-  if (durum.ben && !durum.ben.konuk) {
-    const ben = el('div', 'oge ben'), c = durum.cagri;
-    ben.append(avatar(durum.ben.ad, durum.durumum, localStorage.getItem('ekip_foto')), el('span', null, durum.ben.ad + ' (sen)'));
-    const not = c ? (c.erp ? '👑 yönetici · görüşmede' : 'görüşmede') : { mesgul: 'meşgul', uzakta: 'uzakta' }[durum.durumum];
-    if (not) ben.append(el('span', 'not', not));
-    ben.title = c && c.erp ? 'Bu görüşmenin yöneticisisin: gelenleri içeri alır, susturur, çıkarırsın' : '';
-    kok.append(ben);
-  }
   for (const [id, k] of durum.cevrimici) {
     if (id === durum.ben.id) continue;
     const o = el('div', 'oge'); o.append(avatar(k.ad, k.durum, profilFotolari.get(id)), el('span', null, k.ad));
-    // ERP kullanıcıları görüşmede yöneticidir; aynı görüşmedeyse bunu göster.
-    const ayniGorusme = k.cagri && durum.cagri && k.cagri === cagriKanali();
-    const not = k.cagri ? (ayniGorusme ? '👑 yönetici · görüşmede' : 'görüşmede') : { mesgul: 'meşgul', uzakta: 'uzakta' }[k.durum];
+    const not = k.cagri ? 'görüşmede · #' + k.cagri : { mesgul: 'meşgul', uzakta: 'uzakta' }[k.durum];
     if (not) o.append(el('span', 'not', not));
     o.title = 'Birebir sohbet aç';
     o.onclick = () => { const dk = dmKanal(durum.ben.id, id); durum.dmAdlari.set(dk, k.ad); kanalaGec(dk); };
     kok.append(o);
   }
-  if (durum.cevrimici.size <= (durum.cevrimici.has(durum.ben?.id) ? 1 : 0)) kok.append(el('div', 'oge bos', 'Başka kimse yok'));
+  if (!kok.children.length) kok.append(el('div', 'oge bos', 'Başka kimse yok'));
 }
 
 const zaman = (t) => Date.parse(t);
@@ -1954,13 +1953,13 @@ function cagriSayilari() {
 
 function lobiDurumuYay() {
   if (!durum.lobi) return;
-  const k = cagriKanali(); // alt odadayken ana kanal görünür
+  const k = gorunenKanal(); // alt odadayken ana kanal; bağlantılı görüşmede başlatıldığı kanal
   const cagri = k && !k.startsWith('misafir-') && !ozelMi(k) ? k : null;
-  // Açık kanal görüşmesinin odası: kanaldan "Görüşmeye katıl" diyen aynı odaya girer
-  const oda = cagri && durum.cagri.kaynakKanal ? durum.cagri.anaKanal || durum.cagri.kanal : null;
+  // Kanal görüşmesinin odası: kanaldan "Görüşme başlat/katıl" diyen aynı odaya girer
+  const ana = durum.cagri && (durum.cagri.anaKanal || durum.cagri.kanal);
+  const oda = cagri && ana && ana.startsWith('misafir-') ? ana : null;
   durum.lobi.track({ ad: durum.ben.ad, cagri, oda, kanallar: [...durum.kanallar].filter((x) => !ozelMi(x)), durum: durum.durumum,
                      foto: localStorage.getItem('ekip_foto') || null });
-  kisileriCiz(); // kendi satırındaki "görüşmede / yönetici" bilgisi
 }
 
 // Lobiden gelen profil resmi saklanır; değiştiyse true (mesajlar yeniden çizilsin).
@@ -2265,7 +2264,7 @@ function karoEkle(id, ad, akis, ben) {
   }
   k.querySelector('video').srcObject = akis;
   k.querySelector('span.ad').textContent = ad;
-  if (durum.cagri) kamsizGuncelle();
+  if (durum.cagri) { kamsizGuncelle(); durumRozetleri(); }
   return k;
 }
 
@@ -2493,7 +2492,7 @@ function eslesmeyiGuncelle() {
   // Açık anket/sorular içeri alınan her kişiye bir kez aktarılır (bekleme salonundakine gitmez).
   for (const id of onceki.keys()) if (!c.katilanlar.has(id)) c.aktarilan.delete(id);
   if (benIzinli) for (const [id, g] of c.katilanlar) if (izinli(id, g) && !c.aktarilan.has(id)) { c.aktarilan.add(id); durumAktar(id); }
-  bekleyenleriCiz(); kayitSeridiCiz(); kisileriCizCagri(); izinleriUygula(); yalnizlikCiz(); kamsizGuncelle(); kanallariCiz();
+  bekleyenleriCiz(); kayitSeridiCiz(); kisileriCizCagri(); izinleriUygula(); yalnizlikCiz(); kamsizGuncelle(); kanallariCiz(); durumRozetleri();
   if (!c.altyazi && [...c.katilanlar.values()].some((g) => g.altyazi)) altyaziAcKapa(true, false); // sonradan katılan da altyazıya girer
   if (!c.tahta && benIzinli && [...c.katilanlar.values()].some((g) => g.tahta)) tahtaAcKapa(true, false); // açık tahtayı görür
 }
@@ -2609,7 +2608,8 @@ function ikonlu(sinif, ikon, yedek) {
   return b;
 }
 function yonetimDugmeleri(karo, id) {
-  const y = el('div', 'yonetim'), sus = ikonlu(null, 'MicOff', 'Sustur'), kam = ikonlu(null, 'VideoOff', 'Kamera'), cik = ikonlu('tehlike', 'UserX', 'Çıkar');
+  // Eylemler yazılı: durum rozetiyle (sağ üst) karışmasın diye simge değil düğme metni.
+  const y = el('div', 'yonetim'), sus = el('button', null, 'Sustur'), kam = el('button', null, 'Kamerayı kapat'), cik = el('button', 'tehlike', 'Çıkar');
   sus.title = 'Mikrofonunu kapat'; sus.setAttribute('aria-label', 'Mikrofonunu kapat');
   kam.title = 'Kamerasını kapat'; kam.setAttribute('aria-label', 'Kamerasını kapat');
   cik.title = 'Görüşmeden çıkar'; cik.setAttribute('aria-label', 'Görüşmeden çıkar');
@@ -2744,13 +2744,36 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
   if ((arka && arka !== 'yok') || $('secIsik').checked) arkaPlanAyarla(arka || 'yok'); // model yüklenirken görüşme beklemez
 }
 
+// Her karenin sağ üstünde gerçek durum: mikrofon ve kamera açık/kapalı (kendin için izlerden, başkası için yayınladığı durumdan).
+function durumRozetleri() {
+  const c = durum.cagri;
+  if (!c) return;
+  const svg = (ad) => (window.lucide && lucide.icons[ad] ? lucide.createElement(lucide.icons[ad]) : document.createTextNode(ad === 'Mic' || ad === 'MicOff' ? '🎤' : '📷'));
+  for (const k of $('sahne').querySelectorAll('.karo')) {
+    const id = k.dataset.id, g = id === durum.ben.id ? null : c.katilanlar.get(id);
+    if (!id || (id !== durum.ben.id && !g)) continue;
+    const mikIz = c.yerel.getAudioTracks()[0], kamIz = c.yerel.getVideoTracks()[0];
+    const mik = g ? g.mik !== false : !!mikIz && mikIz.enabled, kam = g ? g.kam !== false : !!kamIz && kamIz.enabled;
+    const anahtar = `${mik}|${kam}`;
+    let r = k.querySelector('.durum-rozet');
+    if (r && r.dataset.d === anahtar) continue;
+    if (!r) { r = el('div', 'durum-rozet'); k.append(r); }
+    r.dataset.d = anahtar;
+    const m = el('span', mik ? '' : 'kapali'), v = el('span', kam ? '' : 'kapali');
+    m.append(svg(mik ? 'Mic' : 'MicOff')); v.append(svg(kam ? 'Video' : 'VideoOff'));
+    m.title = mik ? 'Mikrofon açık' : 'Mikrofon kapalı'; v.title = kam ? 'Kamera açık' : 'Kamera kapalı';
+    r.setAttribute('aria-label', `${m.title}, ${v.title}`);
+    r.replaceChildren(m, v);
+  }
+}
+
 const cagriDurumuYay = () => {
   const c = durum.cagri, mik = c.yerel.getAudioTracks()[0];
   c.ch.track({ ad: durum.ben.ad, katilma: c.katilma, bas: c.baslangic, el: c.el, erp: c.erp, sahipKanit: durum.ben.sahipKanit || null, kabuller: [...c.kabuller], cikarilanlar: [...c.cikarilanlar],
                kayit: !!c.kayit, altyazi: c.altyazi, tahta: c.tahta, mik: !!mik && mik.enabled, ekran: !!c.ekran, sfu: !!c.sfu,
                kilit: c.kilit, izinler: c.izinler, ekranIzinli: [...c.ekranIzinli], sureDk: c.sureDk || 0, kam: !!c.yerel.getVideoTracks()[0]?.enabled,
                foto: localStorage.getItem('ekip_foto') || null });
-  kamsizGuncelle();
+  kamsizGuncelle(); durumRozetleri();
 };
 
 function mikKamDugmeleri() {
