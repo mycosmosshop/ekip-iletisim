@@ -416,6 +416,25 @@
   .oge .kanal-menu + .sayac, .oge .kanal-menu + .cagri-isareti { margin-left: 4px; }
   #erpSor { font-size: 13px; line-height: 1.5; color: var(--soluk); }
   #erpSor a { color: var(--vurgu, #1d6f5f); font-weight: 600; }
+  .agac { margin: 0 8px 6px 22px; border-left: 1px solid rgb(255 255 255 / .14); padding-left: 6px; }
+  .agac-grup { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--murekkep-soluk); user-select: none; }
+  .agac-grup:hover { background: var(--murekkep-2); color: var(--murekkep-yazi); }
+  .agac-grup .ok { width: 10px; transition: transform .15s; }
+  .agac-grup.acik .ok { transform: rotate(90deg); }
+  .agac-grup .say { margin-left: auto; font-size: 11.5px; opacity: .8; }
+  .agac-oge { display: block; padding: 3px 8px 3px 22px; border-radius: 6px; font-size: 12.5px; color: var(--murekkep-yazi); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .agac-oge:hover { background: var(--murekkep-2); }
+  .agac-bos { padding: 2px 8px 4px 22px; font-size: 12px; color: var(--murekkep-soluk); }
+  @media (prefers-reduced-motion: reduce) { .agac-grup .ok { transition: none; } }
+  #ogePenceresi { border: 0; border-radius: 18px; background: var(--panel); color: var(--yazi); padding: 22px; width: min(640px, 94vw); max-height: 92vh; overflow: auto; box-shadow: var(--golge); }
+  #ogePenceresi::backdrop { background: rgb(8 20 24 / .6); }
+  #ogePenceresi form { display: grid; gap: 12px; }
+  #ogePenceresi strong { font: 700 19px/1.25 var(--yazi-baslik); }
+  #ogePenceresi textarea { font: 14px/1.55 var(--yazi-govde); resize: vertical; padding: 10px; border: 1px solid var(--kenar); border-radius: 10px; color: var(--yazi); background: var(--panel); }
+  #ogePenceresi textarea[readonly] { background: var(--zemin); }
+  #ogePenceresi label { display: grid; gap: 4px; color: var(--soluk); font-size: 14px; }
+  #ogePenceresi .tehlike { background: var(--kirmizi); color: #fff; border-color: transparent; }
+  #ogePenceresi a.dugme { display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 10px; border: 1px solid var(--kenar); color: inherit; text-decoration: none; }
   #kanalIslem { border: 0; border-radius: 18px; background: var(--panel); color: var(--yazi); padding: 22px; width: min(440px, 94vw); box-shadow: var(--golge); }
   #kanalIslem::backdrop { background: rgb(8 20 24 / .6); }
   #kanalIslem form { display: grid; gap: 12px; }
@@ -658,6 +677,16 @@
   </form>
 </dialog>
 
+<dialog id="ogePenceresi">
+  <form method="dialog">
+    <strong id="ogeBaslik"></strong>
+    <div id="ogeBilgi" class="ust-bilgi"></div>
+    <textarea id="ogeMetin" rows="14" maxlength="4000" readonly></textarea>
+    <label id="ogeAdSatir" hidden>Dosya adı <input id="ogeAd" maxlength="200" autocomplete="off"></label>
+    <div class="satir2"><a id="ogeAc" class="dugme" target="_blank" rel="noopener" hidden>Aç</a><button type="button" id="ogeDuzenle">Düzenle</button><button type="button" id="ogeKaydet" class="ana" hidden>Kaydet</button><button type="button" id="ogeSil" class="tehlike">Sil</button><button value="kapat" formnovalidate>Kapat</button></div>
+  </form>
+</dialog>
+
 <dialog id="kanalIslem">
   <form method="dialog">
     <strong id="kanalIslemBaslik">Kanal</strong>
@@ -706,6 +735,10 @@
     <h3>Toplantı notu</h3>
     <label title="Görüşme bitince altyazı dökümü ve ortak notlardan Claude ile özet, kararlar ve aksiyonlar çıkarılıp kanala yazılır"><input type="checkbox" id="ayarOtoNot"> Görüşme bitince toplantı notunu otomatik hazırla</label>
     <div class="ust-bilgi">Kapalıyken not yalnız görüşme içindeki not düğmesine bastığında hazırlanır. Otomatik not için CC Altyazı açıkken konuşulmuş olması ya da Notlar sekmesine yazılmış olması gerekir.</div>
+    <h3>Claude (yapay zekâ)</h3>
+    <div class="ust-bilgi">Toplantı notu, kaçırdıklarım özeti, çeviri ve kanal hafızası bu anahtarla çalışır. Anahtar tarayıcıda tutulmaz, sunucuya (Apps Script) kaydedilir ve geri okunamaz. Yalnız ERP yöneticisi değiştirebilir.</div>
+    <div class="satir2"><span id="claudeDurum">Durum soruluyor…</span></div>
+    <div class="satir2"><input id="claudeAnahtar" type="password" autocomplete="off" placeholder="sk-ant-… (console.anthropic.com → API keys)" style="flex:1;min-width:220px"><button type="button" id="claudeKaydet">Kaydet ve dene</button></div>
     <h3>Arka plan</h3>
     <div id="ayarArka" class="arka-izgara" role="radiogroup" aria-label="Arka plan"></div>
     <h3>Bildirimler</h3>
@@ -877,6 +910,7 @@ function mesajAl(m, sessiz) {
   durum.mesajlar.set(m.kanal, liste);
   if (m.kanal.startsWith('dm:') && m.yazar_id !== durum.ben.id) durum.dmAdlari.set(m.kanal, m.yazar_ad);
   else kanalEkle(m.kanal, false);
+  if (m.kanal === durum.aktif && (m.dosya || NOT_ONEKI.test(m.metin || ''))) agacTazele();
   const baskasi = m.yazar_id !== durum.ben.id;
   durum.yazanlar.get(m.kanal)?.delete(m.yazar_id);
   if (m.kanal === durum.aktif) yaziyorCiz();
@@ -1018,6 +1052,7 @@ function mesajGuncelAl(g) {
   const m = (durum.mesajlar.get(g.kanal) || []).find((x) => x.id === g.id);
   if (!m || g.yazar_id !== m.yazar_id) return;
   Object.assign(m, { metin: g.metin, silindi: !!g.silindi, duzenlendi: g.duzenlendi });
+  if (g.kanal === durum.aktif && (m.dosya || g.silindi || NOT_ONEKI.test(g.metin || ''))) agacTazele();
   if (g.silindi) m.dosya = null;
   if (g.kanal === durum.aktif) mesajlariCiz();
 }
@@ -1370,6 +1405,93 @@ async function gonder(metin, dosya, ek) {
 }
 
 // ---------- çizim ----------
+// Kanal ağacı: seçili kanalın altında toplantı notları, medya (resim, görüşme kaydı, sesli mesaj) ve dosyalar.
+// Veri Arşiv'le aynı yerden (mesajlar) gelir; arşivi kapalı özel kanalda görünmez. Düzenleme/silme yalnız ekleyene açık (veritabanı kuralı).
+const NOT_ONEKI = /^(📝 Toplantı notu|✨ Toplantı özeti)/u;
+const agacAcik = new Set((() => { try { return JSON.parse(localStorage.getItem('ekip_agac_acik') || '["not"]'); } catch (e) { return ['not']; } })());
+let agac = { kanal: null, not: [], medya: [], dosya: [] }, agacSayac = 0;
+async function agacYukle(k = durum.aktif) {
+  if (!durum.tabloVar || !k || k.startsWith('dm:') || !arsivAcik(k)) { agac = { kanal: k, not: [], medya: [], dosya: [] }; return kanallariCiz(); }
+  const n = ++agacSayac;
+  const [dosyalar, notlar] = await Promise.all([
+    sb.from('ekip_mesaj').select('id, kanal, yazar_id, yazar_ad, metin, dosya, olusma').eq('kanal', k).not('dosya', 'is', null).eq('silindi', false).order('olusma', { ascending: false }).limit(200),
+    sb.from('ekip_mesaj').select('id, kanal, yazar_id, yazar_ad, metin, dosya, olusma').eq('kanal', k).eq('silindi', false)
+      .or('metin.like.📝 Toplantı notu%,metin.like.✨ Toplantı özeti%').order('olusma', { ascending: false }).limit(100),
+  ]);
+  if (n !== agacSayac) return; // daha yeni bir yükleme var
+  const d = (dosyalar.data || []).filter((m) => m.dosya && m.dosya.url);
+  const notMu = (m) => NOT_ONEKI.test(m.metin || '') || /^Toplantı notu/.test((m.dosya && m.dosya.ad) || '');
+  agac = { kanal: k, not: [...(notlar.data || []), ...d.filter(notMu)].sort((a, b) => zaman(b.olusma) - zaman(a.olusma)),
+           medya: d.filter((m) => !notMu(m) && dosyaTuru(m.dosya) !== 'belge'), dosya: d.filter((m) => !notMu(m) && dosyaTuru(m.dosya) === 'belge') };
+  kanallariCiz();
+}
+let agacZamanlayici = 0;
+const agacTazele = () => { clearTimeout(agacZamanlayici); agacZamanlayici = setTimeout(() => agacYukle(), 800); };
+function agacCiz(k) {
+  const kutu = el('div', 'agac');
+  if (agac.kanal !== k) return kutu;
+  const ogeAdi = (m, tur) => tur === 'not' ? (m.dosya ? '📄 ' : '') + (m.metin || '').split(String.fromCharCode(10))[0].replace(/^(📝|✨)\s*/u, '').replace(/^Toplantı notu · /, '')
+    : ({ resim: '🖼️ ', kayit: '▶ ', ses: '🎤 ' }[dosyaTuru(m.dosya)] || '📄 ') + (dosyaTuru(m.dosya) === 'ses' ? 'Sesli mesaj · ' + tarihYaz(m.olusma) : m.dosya.ad);
+  for (const [tur, ad] of [['not', 'Toplantı notları'], ['medya', 'Medya'], ['dosya', 'Dosyalar']]) {
+    const liste = agac[tur], acik = agacAcik.has(tur), g = el('div', 'agac-grup' + (acik ? ' acik' : ''));
+    g.setAttribute('role', 'button'); g.tabIndex = 0; g.setAttribute('aria-expanded', String(acik));
+    g.append(el('span', 'ok', '▸'), el('span', null, ad), el('span', 'say', String(liste.length)));
+    const degistir = (e) => { e.stopPropagation(); acik ? agacAcik.delete(tur) : agacAcik.add(tur); localStorage.setItem('ekip_agac_acik', JSON.stringify([...agacAcik])); kanallariCiz(); };
+    g.onclick = degistir; g.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); degistir(e); } };
+    kutu.append(g);
+    if (!acik) continue;
+    if (!liste.length) { kutu.append(el('div', 'agac-bos', 'Henüz yok')); continue; }
+    for (const m of liste.slice(0, 30)) {
+      const o = el('div', 'agac-oge', ogeAdi(m, tur)); o.title = (m.yazar_ad || '') + ' · ' + tarihYaz(m.olusma);
+      o.tabIndex = 0; o.setAttribute('role', 'button');
+      o.onclick = (e) => { e.stopPropagation(); ogeAc(m, tur); };
+      o.onkeydown = (e) => { if (e.key === 'Enter') ogeAc(m, tur); };
+      kutu.append(o);
+    }
+    if (liste.length > 30) { const t = el('div', 'agac-oge', `Tümü (${liste.length}) Arşiv’de…`); t.onclick = (e) => { e.stopPropagation(); $('kayitlarMenu').showPopover(); }; kutu.append(t); }
+  }
+  return kutu;
+}
+let acikOge = null;
+function ogeAc(m, tur) {
+  acikOge = m;
+  const benim = m.yazar_id === durum.ben.id, metinli = tur === 'not' && !m.dosya;
+  $('ogeBaslik').textContent = tur === 'not' ? (m.metin || '').split(String.fromCharCode(10))[0] : m.dosya.ad;
+  $('ogeBilgi').textContent = `${m.yazar_ad || ''} · ${tarihYaz(m.olusma)}` + (benim ? '' : ' · Yalnız ekleyen kişi düzenleyip silebilir.');
+  $('ogeMetin').hidden = !metinli; $('ogeMetin').value = metinli ? m.metin : ''; $('ogeMetin').readOnly = true;
+  $('ogeAdSatir').hidden = true; $('ogeAd').value = m.dosya ? m.dosya.ad : '';
+  $('ogeAc').hidden = !m.dosya; if (m.dosya) $('ogeAc').href = m.dosya.url;
+  $('ogeDuzenle').hidden = !benim; $('ogeDuzenle').textContent = metinli ? 'Düzenle' : 'Adını değiştir';
+  $('ogeKaydet').hidden = true; $('ogeSil').hidden = !benim;
+  $('ogePenceresi').showModal();
+}
+function ogeIslemleriKur() {
+  $('ogeDuzenle').onclick = () => {
+    const m = acikOge; if (!m) return;
+    if (m.dosya) { $('ogeAdSatir').hidden = false; $('ogeAd').focus(); } else { $('ogeMetin').readOnly = false; $('ogeMetin').focus(); }
+    $('ogeDuzenle').hidden = true; $('ogeKaydet').hidden = false;
+  };
+  $('ogeKaydet').onclick = async () => {
+    const m = acikOge; if (!m) return;
+    if (m.dosya) {
+      const ad = $('ogeAd').value.trim().slice(0, 200); if (!ad) return;
+      const dosya = { ...m.dosya, ad };
+      const { error } = await sb.from('ekip_mesaj').update({ dosya, duzenlendi: new Date().toISOString() }).eq('id', m.id);
+      if (error) { $('ogeBilgi').textContent = 'Kaydedilemedi: ' + error.message; return; }
+      const yerel = (durum.mesajlar.get(m.kanal) || []).find((x) => x.id === m.id); if (yerel) yerel.dosya = dosya;
+    } else {
+      const metin = $('ogeMetin').value.trim(); if (!metin) return;
+      await mesajDegistir(m, { metin });
+    }
+    $('ogePenceresi').close(); mesajlariCiz(); agacYukle();
+  };
+  $('ogeSil').onclick = async () => {
+    const m = acikOge; if (!m || !confirm('Bu öğe silinsin mi? Sohbetteki mesajı da silinir. (Drive’daki dosya silinmez.)')) return;
+    await mesajDegistir(m, { silindi: true });
+    $('ogePenceresi').close(); mesajlariCiz(); agacYukle();
+  };
+}
+
 // Kanal işlemleri: görünen adı değiştir (yalnız bende), listemden kaldır, özel kanalı açan kişi için herkes için sil.
 let islemKanal = null;
 function kanalIslemAc(k) {
@@ -1425,6 +1547,7 @@ function kanallariCiz() {
     else if (durum.okunmamis.get(k)) o.append(el('span', 'sayac', durum.okunmamis.get(k)));
     o.onclick = () => kanalaGec(k);
     kok.append(o);
+    if (k === durum.aktif && durum.kanallar.has(k) && durum.tabloVar && arsivAcik(k)) kok.append(agacCiz(k));
   }
 }
 
@@ -1712,7 +1835,7 @@ async function kanalaGec(k) {
   $('kacirdik').hidden = true;
   durum.aktif = k; durum.okunmamis.delete(k);
   durum.arama = null; durum.duzenlenen = durum.silinecek = null; yanitIptal(); yaziyorCiz();
-  kanallariCiz(); basligiCiz(); mesajlariCiz(); sekmeBasligi(); arsivDugmesiniGuncelle();
+  kanallariCiz(); basligiCiz(); mesajlariCiz(); sekmeBasligi(); arsivDugmesiniGuncelle(); agacYukle(k);
   await gecmisYukle(k);
   mesajlariCiz();
   if (durum.aktif === k) kacirdiklariGoster(k, oturumda || await dbOkundu);
@@ -1816,6 +1939,18 @@ function ayarlariAc() {
   $('ayarIsik').checked = localStorage.getItem('ekip_isik') === '1';
   $('ayarGurultu').checked = gurultuAcik();
   $('ayarOtoNot').checked = otoNotAcik();
+  $('claudeAnahtar').value = '';
+  if (YEREL || !DOSYA_URL) $('claudeDurum').textContent = 'Yerel denemede kullanılamaz.';
+  else betikIstegi({ islem: 'claude-durum' }).then((j) => { $('claudeDurum').textContent = j.var ? '✓ Anahtar tanımlı' : '✗ Anahtar tanımlı değil: toplantı notu çıkmaz'; },
+    (e) => { $('claudeDurum').textContent = 'Durum alınamadı: ' + e.message; });
+  $('claudeKaydet').onclick = async () => {
+    const a = $('claudeAnahtar').value.trim();
+    if (!a) return;
+    $('claudeKaydet').disabled = true; $('claudeDurum').textContent = 'Anahtar deneniyor…';
+    try { await betikIstegi({ islem: 'claude-anahtar', anahtar: a }); $('claudeDurum').textContent = '✓ Anahtar kaydedildi ve çalışıyor'; $('claudeAnahtar').value = ''; }
+    catch (e) { $('claudeDurum').textContent = '✗ ' + e.message; }
+    finally { $('claudeKaydet').disabled = false; }
+  };
   $('ayarOtoNot').onchange = (e) => localStorage.setItem('ekip_oto_not', e.target.checked ? '1' : '0');
   $('ayarGurultu').onchange = (e) => { localStorage.setItem('ekip_gurultu', e.target.checked ? '1' : '0'); gurultuUygula(); };
   arkaIzgarasi($('ayarArka'), (tur) => {
@@ -2500,6 +2635,7 @@ async function cagriyaKatil(kanal = durum.aktif, ayar = {}) {
   });
   icerik('isaret', isaretAl);
   icerik('not', notAl);
+  icerik('not-hazir', () => { c.notGitti = c.dokum.length + c.sohbetKaydi.length; });
   icerik('ekran-iste', ekranIstegiAl);
   icerik('ekran-cevap', ekranCevabiAl);
   icerik('tahta-sil', (payload) => { if (durum.cagri.tahtaVuruslar.delete(payload.v)) tahtaTumunuCiz(); });
@@ -2569,6 +2705,7 @@ async function cagridanAyril(gecis) {
   if (!c) return;
   c.ayriliyor = true;
   const nd = gecis ? {} : notDurumu(c, c.herkesBitirdi), not = nd.veri || null;
+  if (not && c.katilanlar.size) c.ch.send({ type: 'broadcast', event: 'not-hazir', payload: {} }); // kalanlar aynı notu tekrarlamasın
   pipKapat();
   if ($('dahaMenu').matches(':popover-open')) $('dahaMenu').hidePopover();
   if (c.kayit) await kayitDurdur(); // kayıt kaybolmasın: önce yüklenir
@@ -4354,7 +4491,7 @@ async function ozetCikar() {
   const c = durum.cagri;
   if (!c.dokum.length && !c.sohbetKaydi.length) { $('uyari').textContent = 'Not, altyazı dökümünden çıkarılır: önce CC Altyazı\'yı aç ve biraz konuşun.'; return; }
   $('ozetDugme').disabled = true; $('uyari').textContent = '📝 Toplantı notu hazırlanıyor…';
-  try { await toplantiNotuGonder(toplantiNotuVerisi(c)); c.notGitti = c.dokum.length + c.sohbetKaydi.length; $('uyari').textContent = ''; }
+  try { await toplantiNotuGonder(toplantiNotuVerisi(c)); c.notGitti = c.dokum.length + c.sohbetKaydi.length; $('uyari').textContent = ''; c.ch.send({ type: 'broadcast', event: 'not-hazir', payload: {} }); }
   catch (e) { $('uyari').textContent = 'Toplantı notu çıkarılamadı: ' + e.message; }
   finally { $('ozetDugme').disabled = false; }
 }
@@ -4365,13 +4502,16 @@ async function ozetCikar() {
 const notDurumu = (c, herkesIcin) => {
   if (!c.erp || YEREL || !DOSYA_URL || c.altOda || durum.ben.konuk) return { neden: '' }; // ERP dışı ya da alt oda: not beklenmez
   if (!otoNotAcik()) return { neden: '' };
-  const sonSahip = herkesIcin || ![...c.katilanlar].some(([id, g]) => g.erp && izinli(id, g));
-  if (!sonSahip) return { neden: 'Görüşmede başka ERP kullanıcısı kaldı; not, ERP’li son kişi çıkınca onun tarayıcısından hazırlanır.' };
+  // Notu toplantıyı açan (görüşmeye ilk giren ERP'li) ya da en son çıkan ERP'li hazırlar. Açan çıkarken not hazırlanınca
+  // içeride kalanlara bildirilir; sonra en az 4 yeni satır olursa son çıkan ek not hazırlar.
+  const erpKalanlar = [...c.katilanlar].filter(([id, g]) => g.erp && izinli(id, g));
+  const acanBenim = !erpKalanlar.some(([id, g]) => g.katilma < c.katilma || (g.katilma === c.katilma && id < durum.ben.id));
+  if (!herkesIcin && erpKalanlar.length && !acanBenim) return { neden: 'Toplantı notunu toplantıyı açan kişi ya da en son çıkan ERP kullanıcısı hazırlar.' };
   const icerik = c.dokum.length + c.sohbetKaydi.length;
   const notVar = !!(c.not && c.not.metin.trim().length > 20); // ortak not tek başına da yeterli içerik
   const yeterli = c.dokum.length >= 2 || notVar;
   if (!yeterli) return { neden: c.dokum.length || c.altyazi ? `Toplantı notu çıkmadı: yalnız ${c.dokum.length} satır konuşma yazıya çevrildi (en az 2 gerekir). Mikrofonun açık olduğundan emin ol.` : '' };
-  if (!(icerik > (c.notGitti || 0) || notVar)) return { neden: 'Toplantı notu zaten hazırlanmıştı; yeni içerik yok.' };
+  if (!(icerik - (c.notGitti || 0) >= (c.notGitti ? 4 : 1) || (notVar && !c.notGitti))) return { neden: 'Toplantı notu zaten hazırlanmıştı; yeni içerik yok.' };
   return { veri: toplantiNotuVerisi(c) };
 };
 const otomatikNotVerisi = (c, herkesIcin) => notDurumu(c, herkesIcin).veri || null;
@@ -4575,7 +4715,7 @@ function cagriDugmeleriniBagla() {
   $('dosyaAra').oninput = dosyalariCiz;
   $('sorDugme').onclick = () => { if (YEREL || !DOSYA_URL) { $('uyari').textContent = 'Kanal hafızası için ERP girişi gerekir.'; return; } $('sorCevap').hidden = true; $('sorPenceresi').showModal(); $('sorMetin').focus(); };
   $('sorGonder').onclick = kanalaSor;
-  kanalIslemKur();
+  kanalIslemKur(); ogeIslemleriKur();
   $('sorMetin').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); kanalaSor(); } };
   $('altyaziDugme').onclick = () => altyaziAcKapa(!durum.cagri.altyazi, true);
   $('dokumDugme').onclick = dokumKaydet;

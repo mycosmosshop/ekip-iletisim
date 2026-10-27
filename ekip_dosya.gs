@@ -34,6 +34,8 @@ function doPost(e) {
     if (g.islem === 'ozet') return yanit(toplantiOzeti(g));
     if (g.islem === 'kacirdiklar') return yanit(kacirdiklar(g));
     if (g.islem === 'sor') return yanit(kanalaSor(g));
+    if (g.islem === 'claude-durum') return yanit({ ok: true, var: !!ayar('ANTHROPIC_API_KEY') });
+    if (g.islem === 'claude-anahtar') return yanit(claudeAnahtarKaydet(g, kullanici));
     if (g.islem === 'cevir') return yanit(cevir(g));
     if (g.islem === 'baslat') return yanit(oturumBaslat(g, kullanici));
     if (g.islem === 'parca') return yanit(parcaGonder(g));
@@ -160,6 +162,20 @@ function kanalaSor(g) {
   return { ok: true, cevap: claude(sistem, 'SORU: ' + soru + '\n\nALINTILAR:\n' + baglam) };
 }
 
+// Uygulamadaki Ayarlar'dan Claude anahtarı: yalnız ERP yöneticisi; önce Anthropic'e denenir, sonra komut dosyası özelliğine yazılır.
+// Anahtar hiçbir yanıtta geri dönmez.
+function claudeAnahtarKaydet(g, kullanici) {
+  if (!kullanici.yonetici) throw new Error('Anahtarı yalnız ERP yöneticisi değiştirebilir');
+  const a = String(g.anahtar || '').trim();
+  if (!/^sk-ant-[\w-]{20,}$/.test(a)) throw new Error('Anahtar "sk-ant-" ile başlamalı');
+  const r = UrlFetchApp.fetch('https://api.anthropic.com/v1/models?limit=1', {
+    headers: { 'x-api-key': a, 'anthropic-version': '2026-10-21' }, muteHttpExceptions: true,
+  });
+  if (r.getResponseCode() !== 200) throw new Error('Anahtar Anthropic tarafından kabul edilmedi (' + r.getResponseCode() + ')');
+  PropertiesService.getScriptProperties().setProperty('ANTHROPIC_API_KEY', a);
+  return { ok: true };
+}
+
 function cevir(g) {
   const dil = DILLER[g.dil];
   if (!dil) throw new Error('Desteklenmeyen dil');
@@ -219,11 +235,11 @@ function kullaniciDogrula(token) {
   const u = UrlFetchApp.fetch(SUPA_URL + '/auth/v1/user', { headers: basliklar, muteHttpExceptions: true });
   if (u.getResponseCode() !== 200) throw new Error('Oturum geçersiz, ERP\'ye yeniden giriş yapın');
   const kul = JSON.parse(u.getContentText());
-  const r = UrlFetchApp.fetch(SUPA_URL + '/rest/v1/erp_users?select=approved&id=eq.' + encodeURIComponent(kul.id),
+  const r = UrlFetchApp.fetch(SUPA_URL + '/rest/v1/erp_users?select=approved,is_admin&id=eq.' + encodeURIComponent(kul.id),
                               { headers: basliklar, muteHttpExceptions: true });
   const satir = JSON.parse(r.getContentText())[0];
   if (!satir || !satir.approved) throw new Error('ERP onayı yok');
-  const sonuc = { id: kul.id, email: kul.email };
+  const sonuc = { id: kul.id, email: kul.email, yonetici: !!satir.is_admin };
   onbellek.put(anahtar, JSON.stringify(sonuc), 300);
   return sonuc;
 }
