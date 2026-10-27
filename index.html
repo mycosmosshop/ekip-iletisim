@@ -409,6 +409,16 @@
   #onizleme .cihaz-sec label { display: flex; gap: 6px; align-items: center; font-size: 13.5px; color: var(--soluk); flex: 1; min-width: 200px; }
   #onizleme .cihaz-sec select { flex: 1; min-width: 0; padding: 5px 8px; }
   #onizleme [aria-pressed="false"] { background: var(--kirmizi); border-color: var(--kirmizi); color: #fff; }
+  .oge .kanal-menu { margin-left: auto; opacity: 0; padding: 0 7px; line-height: 1.4; border: 0; background: transparent; color: inherit; font-size: 16px; border-radius: 6px; }
+  .oge:hover .kanal-menu, .oge.secili .kanal-menu, .oge .kanal-menu:focus-visible { opacity: .85; }
+  .oge .kanal-menu:hover { background: rgb(255 255 255 / .12); opacity: 1; }
+  .oge .kanal-menu + .sayac, .oge .kanal-menu + .cagri-isareti { margin-left: 4px; }
+  #kanalIslem { border: 0; border-radius: 18px; background: var(--panel); color: var(--yazi); padding: 22px; width: min(440px, 94vw); box-shadow: var(--golge); }
+  #kanalIslem::backdrop { background: rgb(8 20 24 / .6); }
+  #kanalIslem form { display: grid; gap: 12px; }
+  #kanalIslem strong { font: 700 20px/1.2 var(--yazi-baslik); }
+  #kanalIslem label { display: grid; gap: 4px; color: var(--soluk); font-size: 14px; }
+  #kanalIslem .tehlike { background: var(--kirmizi); color: #fff; border-color: transparent; }
   #kanalPenceresi { border: 0; border-radius: 18px; background: var(--panel); color: var(--yazi); padding: 22px; width: min(440px, 94vw); box-shadow: var(--golge); }
   #kanalPenceresi::backdrop { background: rgb(8 20 24 / .6); }
   #kanalPenceresi form { display: grid; gap: 12px; }
@@ -642,6 +652,17 @@
   </form>
 </dialog>
 
+<dialog id="kanalIslem">
+  <form method="dialog">
+    <strong id="kanalIslemBaslik">Kanal</strong>
+    <label>Görünen ad <input id="kanalIslemAd" maxlength="40" autocomplete="off"></label>
+    <div class="ust-bilgi">Bu ad yalnız senin listende görünür; kanalın gerçek adı herkes için aynı kalır. Boş bırakırsan eski haline döner.</div>
+    <div id="kanalIslemBilgi" class="ust-bilgi" hidden></div>
+    <div class="satir2"><button type="button" class="ana" id="kanalIslemKaydet">Adı kaydet</button><button type="button" id="kanalIslemKaldir">Listemden kaldır</button></div>
+    <div class="satir2"><button type="button" class="tehlike" id="kanalIslemSil" hidden>Herkes için sil</button><button value="kapat" formnovalidate>Kapat</button></div>
+  </form>
+</dialog>
+
 <dialog id="sorPenceresi">
   <form method="dialog">
     <strong>Kanal hafızasına sor</strong>
@@ -811,12 +832,17 @@ async function erpKimligi() {
 
 // ---------- kanallar ve mesajlar ----------
 const dmKanal = (a, b) => 'dm:' + [a, b].sort().join(':');
-const kanalBasligi = (k) => (k.startsWith('dm:') ? (durum.dmAdlari.get(k) || 'Birebir sohbet') : (durum.ozel.has(k) ? '🔒 ' : '# ') + k);
+// Kanal adı herkes için kanalın kimliğidir; "adını değiştir" yalnız bu tarayıcıdaki görünen adı değiştirir.
+const kanalTakmaAdlari = () => { try { return JSON.parse(localStorage.getItem('ekip_kanal_adlari') || '{}'); } catch (e) { return {}; } };
+const gizliKanallar = () => { try { return new Set(JSON.parse(localStorage.getItem('ekip_kanal_gizli') || '[]')); } catch (e) { return new Set(); } };
+const kanalBasligi = (k) => (k.startsWith('dm:') ? (durum.dmAdlari.get(k) || 'Birebir sohbet') : (durum.ozel.has(k) ? '🔒 ' : '# ') + (kanalTakmaAdlari()[k] || k));
 // Özel kanalın adı ve görüşmesi lobide herkese yayılmaz (alt oda da ana kanalın kuralına uyar).
 const ozelMi = (k) => !!k && durum.ozel.has(k.split('~')[0]);
 
-function kanalEkle(k, yay) {
+function kanalEkle(k, yay, zorla) { // zorla: kullanıcı kanalı kendisi ekledi (listeden kaldırdığı kanal geri gelir)
   if (k.startsWith('dm:') || durum.kanallar.has(k)) return;
+  const gizli = gizliKanallar();
+  if (gizli.has(k)) { if (!zorla) return; gizli.delete(k); localStorage.setItem('ekip_kanal_gizli', JSON.stringify([...gizli])); }
   durum.kanallar.add(k);
   localStorage.setItem('ekip_kanallar', JSON.stringify([...durum.kanallar]));
   arsivDugmesiniGuncelle();
@@ -1234,7 +1260,7 @@ async function kanalKaydet() {
   const secili = [...$('uyeListesi').querySelectorAll('input:checked')].map((c) => c.value);
   const hata = (metin) => { $('kanalHata').textContent = metin; $('kanalHata').hidden = false; return false; };
   if (!ad || ad.startsWith('misafir-') || ad.startsWith('dm')) return hata('Geçerli bir kanal adı yaz.');
-  if (!ozel) { kanalEkle(ad, true); kanalaGec(ad); return true; } // açık kanal: eskisi gibi adıyla var olur
+  if (!ozel) { kanalEkle(ad, true, true); kanalaGec(ad); return true; } // açık kanal: eskisi gibi adıyla var olur
   if (!oz && durum.kanallar.has(ad)) return hata('Bu adda bir kanal zaten var; başka bir ad seç.');
   if (durum.tabloVar) {
     if (!oz) {
@@ -1260,7 +1286,7 @@ async function kanalKaydet() {
     // Yerel deneme: kural veritabanında olduğundan burada yalnız görünüm
     durum.ozel.set(ad, { olusturan: durum.ben.id, arsiv: $('kanalArsiv').checked, uyeler: new Set([durum.ben.id, ...secili]) });
     localStorage.setItem('ekip_ozel', JSON.stringify([...durum.ozel.keys()]));
-    kanalEkle(ad, false);
+    kanalEkle(ad, false, true);
   }
   kanalaGec(ad);
   return true;
@@ -1323,12 +1349,57 @@ async function gonder(metin, dosya, ek) {
 }
 
 // ---------- çizim ----------
+// Kanal işlemleri: görünen adı değiştir (yalnız bende), listemden kaldır, özel kanalı açan kişi için herkes için sil.
+let islemKanal = null;
+function kanalIslemAc(k) {
+  islemKanal = k;
+  const oz = durum.ozel.get(k), sahibim = !!oz && oz.olusturan === durum.ben.id;
+  $('kanalIslemBaslik').textContent = kanalBasligi(k);
+  $('kanalIslemAd').value = kanalTakmaAdlari()[k] || ''; $('kanalIslemAd').placeholder = k;
+  $('kanalIslemSil').hidden = !sahibim;
+  $('kanalIslemBilgi').hidden = !sahibim;
+  $('kanalIslemBilgi').textContent = 'Herkes için sil: kanal, tüm mesajları ve üyelikleriyle birlikte kalıcı olarak silinir. Drive’daki dosyalar silinmez.';
+  $('kanalIslem').showModal();
+}
+function kanalIslemKur() {
+  $('kanalIslemKaydet').onclick = () => {
+    const k = islemKanal, a = kanalTakmaAdlari(), ad = $('kanalIslemAd').value.trim();
+    if (ad) a[k] = ad; else delete a[k];
+    localStorage.setItem('ekip_kanal_adlari', JSON.stringify(a));
+    $('kanalIslem').close(); kanallariCiz(); basligiCiz();
+  };
+  $('kanalIslemKaldir').onclick = () => {
+    const k = islemKanal; if (!confirm(`“${kanalBasligi(k)}” listenden kaldırılsın mı? Mesajlar silinmez; “+” ile adını yazarak geri ekleyebilirsin.`)) return;
+    const g = gizliKanallar(); g.add(k); localStorage.setItem('ekip_kanal_gizli', JSON.stringify([...g]));
+    durum.kanallar.delete(k); localStorage.setItem('ekip_kanallar', JSON.stringify([...durum.kanallar]));
+    $('kanalIslem').close();
+    if (durum.aktif === k) { const ilk = [...durum.kanallar][0]; if (ilk) kanalaGec(ilk); else { durum.aktif = null; basligiCiz(); mesajlariCiz(); } }
+    kanallariCiz();
+  };
+  $('kanalIslemSil').onclick = async () => {
+    const k = islemKanal; if (!confirm(`“${k}” kanalı ve TÜM mesajları herkes için kalıcı silinsin mi? Bu geri alınamaz.`)) return;
+    const { error } = await sb.rpc('ekip_kanal_sil', { k });
+    if (error) { $('uyari').textContent = 'Kanal silinemedi: ' + error.message; return; }
+    $('kanalIslem').close();
+    durum.ozel.delete(k); durum.kanallar.delete(k); durum.mesajlar.delete(k);
+    localStorage.setItem('ekip_kanallar', JSON.stringify([...durum.kanallar]));
+    if (durum.aktif === k) { const ilk = [...durum.kanallar][0] || 'genel'; durum.kanallar.add(ilk); kanalaGec(ilk); }
+    kanallariCiz(); lobiDurumuYay();
+  };
+}
+
 function kanallariCiz() {
   const kok = $('kanalListesi'); kok.replaceChildren();
   const cagridakiler = cagriSayilari();
   const tum = [...durum.kanallar, ...durum.dmAdlari.keys()];
   for (const k of tum) {
     const o = el('div', 'oge' + (k === durum.aktif ? ' secili' : ''), kanalBasligi(k));
+    if (durum.kanallar.has(k)) {
+      const m = el('button', 'kanal-menu', '⋯'); m.type = 'button'; m.title = 'Kanal işlemleri'; m.setAttribute('aria-label', k + ' kanalı işlemleri');
+      m.onclick = (e) => { e.stopPropagation(); kanalIslemAc(k); };
+      o.append(m);
+      o.oncontextmenu = (e) => { e.preventDefault(); kanalIslemAc(k); };
+    }
     if (cagridakiler.get(k)) o.append(el('span', 'cagri-isareti', '● görüşme ' + cagridakiler.get(k)));
     else if (durum.okunmamis.get(k)) o.append(el('span', 'sayac', durum.okunmamis.get(k)));
     o.onclick = () => kanalaGec(k);
@@ -4390,6 +4461,7 @@ function cagriDugmeleriniBagla() {
   $('dosyaAra').oninput = dosyalariCiz;
   $('sorDugme').onclick = () => { if (YEREL || !DOSYA_URL) { $('uyari').textContent = 'Kanal hafızası için ERP girişi gerekir.'; return; } $('sorCevap').hidden = true; $('sorPenceresi').showModal(); $('sorMetin').focus(); };
   $('sorGonder').onclick = kanalaSor;
+  kanalIslemKur();
   $('sorMetin').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); kanalaSor(); } };
   $('altyaziDugme').onclick = () => altyaziAcKapa(!durum.cagri.altyazi, true);
   $('dokumDugme').onclick = dokumKaydet;

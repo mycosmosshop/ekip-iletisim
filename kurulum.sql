@@ -302,3 +302,19 @@ drop policy if exists "ekip_kanal guncelle" on public.ekip_kanal;
 create policy "ekip_kanal guncelle" on public.ekip_kanal for update to authenticated
   using (olusturan = auth.uid()) with check (olusturan = auth.uid());
 notify pgrst, 'reload schema';
+
+-- 12. Özel kanalı açan kişi kanalı herkes için siler. Kanal satırı mesajlardan önce silinirse mesajlar "açık kanal"
+--     sayılıp herkese görünür; bu yüzden mesajlar da aynı işlemde silinir (tepkiler ve üyelikler cascade ile gider).
+create or replace function public.ekip_kanal_sil(k text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not exists (select 1 from ekip_kanal c where c.ad = k and c.olusturan = auth.uid()) then
+    raise exception 'Kanalı yalnız açan kişi silebilir';
+  end if;
+  delete from ekip_mesaj where kanal = k or kanal like k || '~%';
+  delete from ekip_okundu where kanal = k or kanal like k || '~%';
+  delete from ekip_kanal where ad = k;
+end $$;
+revoke all on function public.ekip_kanal_sil(text) from public;
+grant execute on function public.ekip_kanal_sil(text) to authenticated;
+notify pgrst, 'reload schema';
